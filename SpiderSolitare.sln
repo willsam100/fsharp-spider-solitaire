@@ -9,6 +9,8 @@ Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "FsCheck.NUnit", "..\FsCheck
 EndProject
 Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "FsCheck", "..\FsCheck\src\FsCheck\FsCheck.fsproj", "{32AA3276-BBA1-41CE-B78A-706B8454EC8D}"
 EndProject
+Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "SpiderSolitare.Console", "SpiderSolitare.Console\SpiderSolitare.Console.fsproj", "{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -31,5 +33,9 @@ Global
 		{32AA3276-BBA1-41CE-B78A-706B8454EC8D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{32AA3276-BBA1-41CE-B78A-706B8454EC8D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{32AA3276-BBA1-41CE-B78A-706B8454EC8D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

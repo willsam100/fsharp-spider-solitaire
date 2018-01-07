@@ -1,10 +1,14 @@
 ﻿//// Learn more about F# at http://fsharp.org. See the 'F# Tutorial' project
 //// for more guidance on F# programming.
 
-#load "SpiderSolitare.fs"
-open SpiderSolitare.ScrathPad
-playGame()
+#r "../packages/Logary.4.2.1/lib/net452/Logary.dll"
+#r "../packages/FSharp.Collections.ParallelSeq.1.0.2/lib/net40/FSharp.Collections.ParallelSeq.dll"
 
+#load "SpiderSolitare.fs"
+#load "Operations.fs"
+#load "SpiderSolver.fs"
+open SpiderSolitare.Solver.Bellman
+open SpiderSolitare.Operations.App
 
 
 

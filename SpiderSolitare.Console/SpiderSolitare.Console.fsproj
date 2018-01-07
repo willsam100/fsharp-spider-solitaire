@@ -3,19 +3,21 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{2B8130B4-5723-4F0D-A721-5B1EE8A3D5E0}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <RootNamespace>SpiderSolitarTests</RootNamespace>
-    <AssemblyName>SpiderSolitarTests</AssemblyName>
+    <ProjectGuid>{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}</ProjectGuid>
+    <UseStandardResourceNames>true</UseStandardResourceNames>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SpiderSolitare.Console</RootNamespace>
+    <AssemblyName>SpiderSolitare.Console</AssemblyName>
     <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
+    <DebugType>portable</DebugType>
     <Optimize>false</Optimize>
     <OutputPath>bin\Debug</OutputPath>
     <DefineConstants>DEBUG</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
+    <ExternalConsole>true</ExternalConsole>
     <PlatformTarget></PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -23,6 +25,7 @@
     <OutputPath>bin\Release</OutputPath>
     <DefineConstants></DefineConstants>
     <ErrorReport>prompt</ErrorReport>
+    <ExternalConsole>true</ExternalConsole>
     <GenerateTailCalls>true</GenerateTailCalls>
     <PlatformTarget></PlatformTarget>
   </PropertyGroup>
@@ -36,39 +39,23 @@
     <Reference Include="mscorlib" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Numerics" />
     <Reference Include="System.ValueTuple">
       <HintPath>..\packages\System.ValueTuple.4.3.0\lib\netstandard1.0\System.ValueTuple.dll</HintPath>
     </Reference>
     <Reference Include="FSharp.Core">
       <HintPath>..\packages\FSharp.Core.4.1.0.2\lib\net45\FSharp.Core.dll</HintPath>
     </Reference>
-    <Reference Include="nunit.framework">
-      <HintPath>..\packages\NUnit.3.6.1\lib\net45\nunit.framework.dll</HintPath>
-    </Reference>
-    <Reference Include="FsUnit.NUnit">
-      <HintPath>..\packages\FsUnit.3.0.0\lib\net45\FsUnit.NUnit.dll</HintPath>
-    </Reference>
-    <Reference Include="Unquote">
-      <HintPath>..\packages\Unquote.3.2.0\lib\net45\Unquote.dll</HintPath>
-    </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="SpiderSolitareTests.fs" />
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Program.fs" />
     <None Include="packages.config" />
-    <Compile Include="SpiderSolverTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SpiderSolitare\SpiderSolitare.fsproj">
       <Project>{A42E2DDD-5DA4-4D03-9B84-0CB5A7E8AB60}</Project>
       <Name>SpiderSolitare</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\FsCheck\src\FsCheck.NUnit\FsCheck.NUnit.fsproj">
-      <Project>{6B1B9FF5-8E6D-4461-9D77-CD1619403684}</Project>
-      <Name>FsCheck.NUnit</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\FsCheck\src\FsCheck\FsCheck.fsproj">
-      <Project>{32AA3276-BBA1-41CE-B78A-706B8454EC8D}</Project>
-      <Name>FsCheck</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(FSharpTargetsPath)" />

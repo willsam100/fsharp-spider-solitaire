@@ -1,15 +1,19 @@
-﻿namespace SpiderSolitarTests
+﻿namespace SpiderSolitareTests
 open System
 open NUnit.Framework
-open SpiderSolitare.App
 open SpiderSolitare.Game
-open SpiderSolitare.Card
+open SpiderSolitare.Game.Game
+open SpiderSolitare.Game.GameMover
 open FsCheck.NUnit
 open FsCheck
 open FsUnit
-open SpiderSolitare
-open SpiderSolitare.GameMover
 open Swensen.Unquote
+
+
+
+module TableauUtils = 
+    let createVisibleTab xs = 
+        {Visible = xs; Hidden = []}
 
 [<TestFixture>]
 type GameStateTest() = 
@@ -19,13 +23,13 @@ type GameStateTest() =
 
     [<Test>]
     member x.``first four tableaus have 6 cards`` () =
-        createGame (System.Random()) (deck Card.Four) |> Game.getAllTabs |> List.take 4 |> List.map Tableau.length |> List.sum |> should be (equal (6 * 4))
+        createGame (Random()) (Card.deck Card.Four) |> Game.getAllTabs |> List.take 4 |> List.sumBy Tableau.length |> should be (equal (6 * 4))
 
     [<Test>]
     member x.``last five tableaus have 5 cards`` () =
-        createGame (System.Random()) (deck Card.Four) |> Game.getAllTabs |> List.skip 4 |> List.map Tableau.length |> List.sum |> should be (equal (5 * 6))
+        createGame (Random()) (Card.deck Card.Four) |> Game.getAllTabs |> List.skip 4 |> List.sumBy Tableau.length |> should be (equal (5 * 6))
 
-    [<Test>]
+    //[<Fact>]
     //member x.``Each card only appears twice`` () =
 
         //let generatedGame = createGame (System.Random()) (deck Card.Four)
@@ -51,7 +55,7 @@ type GameStateTest() =
 
     [<Test>]
     member x.``Entire game constains exactly 104 cards`` () =
-        let generatedGame = createGame (Random()) (deck Card.Four)
+        let generatedGame = createGame (Random()) (Card.deck Card.Four)
         let countOfTableus = generatedGame |> getAllTabs |> List.sumBy (Tableau.length)
         let stockCount = generatedGame |> (fun x -> x.Stock) |> List.length
 
@@ -59,14 +63,17 @@ type GameStateTest() =
 
     [<Test>]
     member x.``Tableaus contain 54 cards`` () =
-        createGame (Random()) (deck Card.Four) |> getAllTabs |> List.sumBy (Tableau.length) |> should be (equal 54)
+        createGame (Random()) (Card.deck Card.Four) |> getAllTabs |> List.sumBy (Tableau.length) |> should be (equal 54)
 
     [<Test>]
     member x.``Tableaus contain 50 cards`` () =
-        createGame (Random()) (deck Card.Four) |> getStock |> List.length |> should be (equal 50)
+        createGame (Random()) (Card.deck Card.Four) |> getStock |> List.length |> should be (equal 50)
 
 
 module GameGenerators = 
+
+    type TableauType =  NonEmtpyTab | EmptyTab
+
     let restrictToOnlyTwoOfTheSameCard gameCards = 
 
         let folder acc card = 
@@ -102,7 +109,7 @@ module GameGenerators =
     let tableau canBeEmpty = 
         gen {
             let! hiddenCards = hiddenCards
-            let startIndex = if canBeEmpty then 0 else 1
+            let startIndex = canBeEmpty |> function | EmptyTab -> 0 | NonEmtpyTab -> 1 
             let! sizeOfCards = Gen.choose (startIndex, 20)
             let! cards = Gen.listOfLength sizeOfCards card
             let gameCards = cards |> List.sort
@@ -115,7 +122,7 @@ module GameGenerators =
         gen {
 
             let! suit = Arb.generate<Suit>
-            let cardValues = [1..13] |> List.map (fun number -> Card (CardValue number, suit))
+            let cardValues = [1..13] |> List.map (fun number -> Card (number, suit))
             let! startIndex = Gen.choose (1,12)
             let! numberToTake = Gen.choose (0, 13-startIndex)
             let! suitChangeIndex = Gen.choose (0,numberToTake)
@@ -134,20 +141,20 @@ module GameGenerators =
             return {Visible = restrictToOnlyTwoOfTheSameCard gameCards; Hidden = []}
         }
 
-    let gameWithTableaus tableau = 
+    let gameWithTableaus tableauGen = 
         gen {
-            let! one = tableau
-            let! two = tableau
-            let! three = tableau
-            let! four = tableau
-            let! five = tableau
-            let! six = tableau
-            let! seven = tableau
-            let! eight = tableau
-            let! nine = tableau
-            let! ten = tableau
+            let! one = tableauGen
+            let! two = tableauGen
+            let! three = tableauGen
+            let! four = tableauGen
+            let! five = tableauGen
+            let! six = tableauGen
+            let! seven = tableauGen
+            let! eight = tableauGen
+            let! nine = tableauGen
+            let! ten = tableauGen
 
-            return{
+            return {
                 emptyGame with 
                     One = one
                     Two = two
@@ -162,25 +169,26 @@ module GameGenerators =
         }
 
 module GameTests =
+    open SpiderSolitare.Solver
 
     type GameTableaus() = 
-        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau true)
+        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau GameGenerators.EmptyTab)
 
     type GameTableausNonEmpty() = 
-        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau false)
+        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau GameGenerators.NonEmtpyTab)
 
     [<Property(Verbose=true, MaxTest = 10)>]
     let ``Game updates card movability`` suit =    
 
         let game = Game.completeSuit emptyGame suit
-        test <@  game.Hearts = One || game.Clubs = One || game.Spades = One || game.Diamonds = One @>
+        test <@  game.Hearts = SuitCompletedStatus.One || game.Clubs = SuitCompletedStatus.One || game.Spades = SuitCompletedStatus.One || game.Diamonds = SuitCompletedStatus.One @>
 
     [<Property(Verbose=true, MaxTest = 10)>]
     let ``A suit can be update twice`` suit =    
 
         let game = Game.completeSuit emptyGame suit |> (fun game -> Game.completeSuit game suit)
 
-        test <@ game.Hearts = Two || game.Clubs = Two || game.Spades = Two || game.Diamonds = Two @>
+        test <@ game.Hearts = Two || game.Clubs = SuitCompletedStatus.Two || game.Spades = SuitCompletedStatus.Two || game.Diamonds = SuitCompletedStatus.Two @>
 
 
     [<Property(Verbose=true, MaxTest = 10, Arbitrary=[|typeof<GameTableausNonEmpty>|])>]
@@ -325,7 +333,7 @@ module CardTests =
         let topCard = Card.create (number - 2) suit
         let bottomCard = Card.create number suit
          
-        (number <> 1) ==> lazy (
+        (number > 2) ==> lazy (
             test <@ 
                     let topCard = Option.get topCard
                     let bottomCard = Option.get bottomCard
@@ -339,10 +347,10 @@ module TableauTests =
         static member CardValue() = Arb.fromGen <| Gen.choose (1, 13)
 
     type TableauNonEmpty() = 
-        static member Tableau() = Arb.fromGen <| GameGenerators.tableau false 
+        static member Tableau() = Arb.fromGen <| GameGenerators.tableau GameGenerators.NonEmtpyTab 
 
     type Tableau() = 
-        static member Tableau() = Arb.fromGen <| GameGenerators.tableau true 
+        static member Tableau() = Arb.fromGen <| GameGenerators.tableau GameGenerators.EmptyTab 
 
     [<Property(Verbose=true, Arbitrary=[|typeof<CardValueGen>|] )>]
     let ``Can add cards together`` suit number =  
@@ -458,26 +466,26 @@ module TableauTests =
         let topCard = Card.create (number - 2) suit
         let bottomCard = Card.create number suit
          
-        (number <> 1) ==> lazy (
+        (number > 2) ==> lazy (
             test <@ 
                     let topCard = Option.get topCard
                     let bottomCard = Option.get bottomCard
 
-                    Card.canAddCardToRun bottomCard topCard  @>)
+                    Card.canAddCardToRun bottomCard topCard |> not @>)
 
 module GameMoverTests =
         
     type Tableau() = 
-        static member Tableau() = Arb.fromGen <| GameGenerators.tableau true 
+        static member Tableau() = Arb.fromGen <| GameGenerators.tableau GameGenerators.EmptyTab 
 
     type TableauWithRun() = 
         static member Tableau() = Arb.fromGen GameGenerators.tableauWithRun
 
     type GameTableaus() = 
-        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau true)
+        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau GameGenerators.EmptyTab)
 
     type GameTableausNonEmpty() = 
-        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau false)
+        static member Game() = Arb.fromGen <| GameGenerators.gameWithTableaus (GameGenerators.tableau GameGenerators.NonEmtpyTab)
 
     type StockGen() = 
         static member Stock() = Arb.fromGen <| Gen.listOfLength 10 GameGenerators.card
@@ -558,7 +566,6 @@ module GameMoverTests =
 
             playableCards * empytCount
 
-
         test <@
                 game 
                 |> GameMover.validMoves
@@ -570,12 +577,33 @@ module GameMoverTests =
     let ``Given a game when getRuns is called then there is a run for every tab`` game =
         test <@ game |> GameMover.getRuns |> List.length = 10 @>
 
+    [<Property(Verbose=true, MaxTest = 20, Arbitrary=[|typeof<GameTableausNonEmpty>|])>]
+    let ``getRuns returns a valid run`` game =
+    
+        let runsWithMoreThanOneCard =    
+            List.filter (snd >> List.length >> (fun x -> x >= 2)) >> List.map snd
+
+        let cardsAreAscendigInValue firstValue = 
+             List.fold (fun (result, expectedValue) x -> if expectedValue = x then result, x + 1 else false, x) (true, firstValue)
+
+        (game |> GameMover.getRuns |> runsWithMoreThanOneCard |> List.length >= 1) ==>
+            lazy (test <@ game 
+                    |> GameMover.getRuns 
+                    |> runsWithMoreThanOneCard
+                    |> List.forall (fun xs ->
+                        xs 
+                        |> List.map Card.getValue 
+                        |> cardsAreAscendigInValue (List.head xs |> Card.getValue)
+                        |> fst) 
+                    @>)
+
+
     [<PropertyGameStockAttribute(20)>]
     let ``Given a game when getRuns is called then each run has at least one card`` game =
         test <@ game 
                 |> GameMover.getRuns 
                 |> List.map (snd >> List.length) 
-                |> List.forall (fun x -> x>= 1) @>
+                |> List.forall (fun x -> x >= 1) @>
 
     [<PropertyGameStockAttribute(20)>]
     let ``GetRuns are the first cards in each tab from the game`` game =
@@ -605,7 +633,7 @@ module GameMoverTests =
                                  |> not )) @>
 
     [<PropertyGameStock(5)>]
-    let ``Given with no stock cannot play stock move`` game =
+    let ``Given no stock cannot play stock move`` game =
         test <@ game |> GameMover.canPlayStock |> Option.isNone @>
 
     [<Property(Verbose=true, MaxTest = 50, Arbitrary=[|typeof<GameTableaus>|])>]
@@ -636,277 +664,143 @@ module GameMoverTests =
             |> List.fold (fun xs x -> match x with | Move m -> m :: xs | _ -> xs) []
 
         (List.length moves >= 1) ==> 
-            lazy (
-                    (test <@ 
-                                game 
-                                |> Game.playMove (List.head moves)
-                                |> Option.map (fun newGame -> 
-                                    (newGame, game) 
-                                    |> Tuple.apply Game.getAllTabs Game.getAllTabs 
-                                    |> F.uncurry List.zip
-                                    |> List.filter (fun (x,y) -> x <> y)
-                                    |> List.map (fun (x,y) -> Math.Abs (Tableau.length x - Tableau.length y)) )
-                                |> Option.exists (fun xs -> 
-                                    xs |> List.length = 2 && 
-                                        (List.head xs = (xs |> List.skip 1 |> List.head)) ) 
-                                @>)
-                                )
+            lazy (test <@ 
+                            game 
+                            |> Game.playMove (List.head moves)
+                            |> Option.map (fun newGame -> 
+                                (newGame, game) 
+                                |> (fun (x,y) -> Game.getAllTabs x, Game.getAllTabs y)
+                                |> F.uncurry List.zip
+                                |> List.filter (fun (x,y) -> x <> y)
+                                |> List.map (fun (x,y) -> Math.Abs (Tableau.length x - Tableau.length y)) )
+                            |> Option.exists (fun xs -> 
+                                xs |> List.length = 2 && 
+                                    (List.head xs = (xs |> List.skip 1 |> List.head)) ) 
+                        @>)
 
-module SpiderTree = 
+    [<PropertyGameStock(50)>]
+    let ``PlayMove completes a run of cards`` suit columnOne columnTwo = 
 
-    type PropertyFiftyAttribute() = 
-        inherit PropertyAttribute(Verbose=true, MaxTest = 50 )
+        let almostCompleteRun = 
+            [2..13] |> List.map (F.flip Card.create suit) |> List.choose id |> TableauUtils.createVisibleTab
 
-    [<PropertyFiftyAttribute()>]
-    let ``Adding game to spiderTree depens the tree by one`` game moves leaf =
+        let cardToCompleteRun = Card.create 1 suit |> Option.get |> List.singleton |> TableauUtils.createVisibleTab
 
-        let root = SpiderTree.createTree game moves 0
+        let game = 
+            Game.emptyGame 
+            |> Game.updateColumn columnOne almostCompleteRun
+            |> Game.updateColumn columnTwo cardToCompleteRun
 
-        (game <> leaf.Game) ==> 
-        lazy (test <@ 
-                    root 
-                    |> SpiderTree.addMovePlayedGreedy game leaf
-                    |> SpiderTree.depth = 2
+        let moves = GameMover.validMoves game
+
+        (columnOne <> columnTwo) ==> 
+        lazy (test <@
+                        moves
+                        |> List.map (F.flip GameMover.playMove game)
+                        |> List.exists (function 
+                        | Won -> false
+                        | Continue (g,xs) -> false
+                        | Lost g -> g.Hearts = One || g.Spades= One || g.Clubs= One || g.Diamonds = One )
+                    @>)
+
+    [<PropertyGameStock(50)>]
+    let ``Flip card moves the card from hidden to visible`` card column = 
+
+        let game = Game.emptyGame |> Game.updateColumn column ({Visible = []; Hidden = [card]})
+
+        test <@
+                game
+                |> GameMover.validMoves
+                |> List.map (F.flip GameMover.playMove game)
+                |> List.forall (function 
+                    | Continue (g, _) -> 
+                        Game.getTabForColumn g column |> Tableau.getVisible = [card] &&
+                            Game.getTabForColumn g column |> Tableau.length = 1
+                    | _ -> false )
+            @>
+
+    [<Property(MaxTest = 50, Arbitrary=[| typeof<GameTableausNonEmpty> |])>]
+    let ``Playing stock adds a card to every column`` cOne cTwo cThree cFour cFive cSix cSeven cEight cNine cTen game = 
+
+        let game = {game with Stock = [cOne; cTwo; cThree; cFour; cFive; cSix; cSeven; cEight; cNine; cTen]}
+
+        test <@
+                game 
+                |> GameMover.playMove Stock 
+                |> function 
+                    | Continue (g,_) -> Some g
+                    | Lost g -> Some g
+                    | Won -> None
+                |> Option.exists (fun g ->                 
+                    List.zip (Game.getAllTabs g) (Game.getAllTabs game)
+                    |> List.map (fun (x,y) -> Tableau.length x, Tableau.length y)
+                    |> List.forall (fun (newTabLength, oldTabLength) -> newTabLength - 1 = oldTabLength) )
+            @>
+
+    [<Property(MaxTest = 50, Arbitrary=[| typeof<GameTableausNonEmpty> |])>]
+    let ``Playing stock removes ten cards from the stock pile`` suit game = 
+
+        let stock = [1..10] |> List.map (F.flip Card.create suit) |> List.choose id
+        let game = {game with Stock = stock}
+
+        (game.Stock |> List.length >= 10) ==>  
+        lazy (test <@
+                        game 
+                        |> GameMover.playMove Stock
+                        |> function 
+                            | Continue (g,_) -> Some g
+                            | Lost g -> Some g
+                            | Won -> None
+                        |> Option.exists (fun g -> g.Stock = [])
+            @>)
+
+    [<Property(MaxTest = 50, Arbitrary=[| typeof<GameTableausNonEmpty> |])>]
+    let ``The first ten cards in the stock are the ten cards that are at the top of the tabs after playing stock move`` stock game = 
+
+        let game = {game with Stock = stock}
+
+        (game.Stock |> List.length >= 10) ==>  
+        lazy (test <@
+                        game 
+                        |> GameMover.playMove Stock
+                        |> function 
+                            | Continue (g,_) -> Some g
+                            | Lost g -> Some g
+                            | Won -> None
+                        |> Option.exists (fun g -> 
+                            g |> Game.getAllTabs |> List.map (Tableau.getVisible >> List.head) = List.take 10 stock )
+            @>)
+
+    [<Property(MaxTest = 50, Arbitrary=[| typeof<GameTableausNonEmpty> |])>]
+    let ``Can win a game with one suit`` suit columnOne columnTwo = 
+       
+        let cardsAlmostComplete = 
+            [2..13] |> List.map (F.flip Card.create suit) |> List.choose id |> TableauUtils.createVisibleTab
+
+        let lastCard = Card.create 1 suit |> Option.get
+
+        let game = 
+            Game.emptyGame 
+            |> Game.updateColumn columnOne cardsAlmostComplete
+            |> Game.updateColumn columnTwo (lastCard |> List.singleton |> TableauUtils.createVisibleTab)
+            |> (fun x -> {x with Hearts = Zero; Clubs = Zero; Diamonds = Zero; Spades = Zero;})
+            |> (fun x -> match suit with 
+                            | H -> {x with Hearts = Three}
+                            | S -> {x with Spades = Three}
+                            | D -> {x with Diamonds = Three}
+                            | C -> {x with Clubs = Three} )
+
+        (columnOne <> columnTwo) ==> 
+            lazy (test <@
+                            game 
+                            |> GameMover.playMove (Move {From = columnTwo; To = columnOne; Card = lastCard})
+                            |> function 
+                                | Won -> true
+                                | _ -> false
                 @>)
-
-    [<PropertyFiftyAttribute()>]
-    let ``Adding two games to spiderTree depens the tree by one`` game moves leafOne leafTwo =
-
-        let root = SpiderTree.createTree game moves 0
-
-        (game <> leafOne.Game && game <> leafTwo.Game && leafOne.Game <> leafTwo.Game) ==> 
-            lazy (test <@ 
-                         root 
-                         |> SpiderTree.addMovePlayedGreedy game leafOne 
-                         |> SpiderTree.addMovePlayedGreedy game leafTwo
-                         |> SpiderTree.depth = 2
-                    @>)
-
-    [<PropertyFiftyAttribute()>]
-    let ``Adding a game to a tree means the game is an extra game in the tree`` game moves leaf =
-
-        let root = SpiderTree.createTree game moves 0
-        game <> leaf.Game ==> 
-            lazy (test <@ 
-                            root 
-                            |> SpiderTree.addMovePlayedGreedy game leaf
-                            |> SpiderTree.toList
-                            |> Set.ofList
-                            |> Set.count = 2
-                            @>)
-
-    [<PropertyFiftyAttribute()>]
-    let ``Adding two games to spiderTree depens the tree by two`` 
-        game moves movePlayedOne movePlayedTwo =
-
-        let root = SpiderTree.createTree game moves 0
-
-        (game <> movePlayedOne.Game && game <> movePlayedTwo.Game 
-            && movePlayedOne.Game <> movePlayedTwo.Game) ==> 
-            lazy (test <@ 
-                        root 
-                        |> SpiderTree.addMovePlayedGreedy game movePlayedOne
-                        |> SpiderTree.addMovePlayedGreedy movePlayedOne.Game movePlayedTwo 
-                        |> SpiderTree.depth = 3
-                    @>)
-
-    [<PropertyFiftyAttribute()>]
-    let ``Can print a tree`` game moves = 
-        test <@ 
-                SpiderTree.createTree game moves 0
-                |> SpiderTree.toString
-                |> String.length > 0
-                @>
-
-    [<PropertyFiftyAttribute()>]
-    let ``Can get the right node for a tree`` game moves movePlayed = 
-        (game <> movePlayed.Game) ==> 
-            lazy (test <@ 
-                          SpiderTree.createTree game moves 0
-                          |> SpiderTree.addMovePlayedGreedy game movePlayed
-                          |> SpiderTree.getNode movePlayed.Game
-                          |> Option.map (fun x -> match x with 
-                                                  | LeafNode x -> x = movePlayed
-                                                  | InternalNode _ -> false)
-                          |> Option.defaultValue false
-             @>)
-
-//module Search = 
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``Rollout can grow`` game newGame move timelimit  = 
-
-    //    let playMove (_:Game) (_:MoveType) = Continue (newGame, [])
-    //    let moves = [move]
-    //    let tree = SpiderTree.createTree game moves 0
-    //    let scoreGame (_:Game) = 1
-
-    //    (game <> newGame) ==> 
-    //        lazy (test <@
-    //                        Search.rollout timelimit playMove Set.empty Map.empty [(scoreGame, 1)]  tree game moves
-    //                        |> fst
-    //                        |> SpiderTree.depth = 2
-    //            @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``Rollout filters games that have already been played`` game newGame moveOne moveTwo timelimit  = 
-
-    //    let playMove (_:Game) (m:MoveType) = 
-    //        if m = moveOne then Continue (newGame, []) else Continue (game, [])
-    //    let moves = [moveOne; moveTwo]
-    //    let tree = SpiderTree.createTree game moves 0
-    //    let scoreGame (_:Game) = 1
-
-    //    (moveOne <> moveTwo && game <> newGame) ==> 
-    //        lazy (test <@
-    //                        Search.rollout timelimit playMove Set.empty Map.empty [(scoreGame, 1)]  tree game moves
-    //                        |> fst
-    //                        |> SpiderTree.totalCount = 2
-    //            @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``Rollout handles no further moves`` game newGame timelimit playMove heuristic = 
-       
-    //    let moves: MoveType list = []
-    //    let tree = SpiderTree.createTree game moves 0
-
-    //    (game <> newGame) ==> 
-    //        lazy (test <@
-    //                        Search.rollout timelimit playMove Set.empty Map.empty [(heuristic, 1)]  tree game moves
-    //                        |> fst
-    //                        |> SpiderTree.totalCount = 1
-    //            @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``Rollout updates states after recursing`` gameOne gameTwo gameThree timelimit moveOne moveTwo moveThree = 
-
-    //    let playMove (_:Game) (m:MoveType) = 
-    //        match m with 
-    //        | m when m = moveTwo -> Continue (gameOne, [])
-    //        | m when m = moveOne -> Continue (gameTwo, [moveThree]) 
-    //        | _ -> Continue (gameThree, [])
-
-    //    let moves = [moveOne; moveTwo]
-    //    let tree = SpiderTree.createTree gameOne moves 0
-    //    let scoreGame (g:Game) = 
-    //        match g with 
-    //        | g when g = gameOne -> 0
-    //        | g when g = gameTwo -> 1
-    //        | _ -> 2
-
-    //    (Set.ofList [moveOne; moveTwo; moveThree] |> Set.count = 3 && 
-    //        Set.ofList [gameOne; gameTwo; gameThree] |> Set.count = 3) ==> 
-    //        lazy (test <@
-    //                        Search.rollout timelimit playMove Set.empty Map.empty [(scoreGame, 2)]  tree gameOne moves
-    //                        |> fst
-    //                        |> SpiderTree.totalCount = 3
-    //            @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``Rollout does not revist the same game`` gameOne gameTwo gameThree timelimit moveOne moveTwo moveThree = 
-
-    //    let playMove (_:Game) (m:MoveType) = 
-    //        match m with 
-    //        | m when m = moveTwo -> Continue (gameOne, [moveThree]) // the same game from moveThree will be returned
-    //        | m when m = moveOne -> Continue (gameTwo, [moveThree]) 
-    //        | _ -> Continue (gameThree, [])
-
-    //    let moves = [moveOne; moveTwo]
-    //    let tree = SpiderTree.createTree gameOne moves 0
-    //    let scoreGame (g:Game) = 
-    //        match g with 
-    //        | g when g = gameOne -> 0
-    //        | g when g = gameTwo -> 1
-    //        | _ -> 2
-
-    //    (Set.ofList [moveOne; moveTwo; moveThree] |> Set.count = 3 && 
-    //        Set.ofList [gameOne; gameTwo; gameThree] |> Set.count = 3) ==> 
-    //        lazy (test <@
-    //                        Search.rollout timelimit playMove Set.empty Map.empty [(scoreGame, 2)]  tree gameOne moves
-    //                        |> fst
-    //                        |> SpiderTree.totalCount = 3
-    //            @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``when subTrees are empty then heuristic is not changed`` 
-    //        rootGame game moves (heuristics: ((Game -> int * int) list)) heuristic = 
-            
-    //    let tree = SpiderTree.createTree rootGame moves 0
-
-    //    (rootGame <> game && List.length heuristics > 1) ==> 
-    //        lazy (test <@ Search.shouldChangeHeuristic heuristics heuristic game tree = false @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``when subTrees are of less value than parent node then heuristic should be changed`` 
-    //        rootGame game moves playedGame (heuristics: ((Game -> int * int) list)) = 
-            
-    //    let tree = 
-    //        SpiderTree.createTree rootGame moves 0 
-    //        |> SpiderTree.addMovePlayedGreedy rootGame playedGame
-       
-    //    let heuristic (game: Game) = Core.int.MaxValue
-
-    //    (rootGame <> game && rootGame <> playedGame.Game && game <> playedGame.Game && List.length heuristics > 1) ==> 
-    //        lazy (test <@ Search.shouldChangeHeuristic heuristics heuristic rootGame tree @>)
-
-    //[<Property(Verbose=true, MaxTest = 50 )>]
-    //let ``Stops rollout when there are no more moves`` gameOne gameTwo gameThree timelimit moveOne moveTwo = 
-
-    //    let moves = [moveOne]
-    //    let tree = SpiderTree.createTree gameOne moves 0
-    //    let playMove (_:Game) (m:MoveType) = 
-    //        match m with 
-    //        | m when m = moveOne -> Continue (gameTwo, [moveTwo]) 
-    //        | _ -> Continue (gameThree, [])    
-
-    //    let scoreGame (_:Game) = 1
-
-    //    (Set.ofList [moveOne; moveTwo] |> Set.count = 2 && 
-    //        Set.ofList [gameOne; gameTwo] |> Set.count = 2) ==> 
-    //        lazy (test <@
-    //                        Search.rollout timelimit playMove Set.empty Map.empty [(scoreGame, 1)] tree gameOne moves
-    //                        |> (fun (tree, map) -> SpiderTree.totalCount tree = 2)
-    //            @>)
+        
 
 
-    //[<Property(Verbose=true, MaxTest = 5 )>]
-    //let ``PlayNextMoves: Given the next heuristic the tree is returned is added together`` 
-    //        movePlayed  rootGame move tailHeuristics movePlayedTwo heuristic = 
-    //    printfn "Running test...."
+        
+        
 
-    //    let tree = 
-    //        SpiderTree.createTree rootGame [move] 0 
-    //        |> SpiderTree.addMovePlayedGreedy rootGame movePlayed
-
-    //    let newTree =  tree |> SpiderTree.addMovePlayedGreedy movePlayed.Game movePlayedTwo
-
-    //    let recurse (_: int) (tree: SpiderTree) (game: Game) (moves: MoveType list)  = newTree, Map.empty<int, int>
-    //    (rootGame <> movePlayed.Game && rootGame <> movePlayedTwo.Game && movePlayedTwo.Game <> movePlayed.Game) ==>  
-    //        lazy(test <@  
-    //                     Search.playNextMoves (fun _ _ -> true) recurse tailHeuristics heuristic movePlayed.Game movePlayed.Moves tree Map.empty
-    //                     |> fst
-    //                     |> SpiderTree.totalCount = ([rootGame; movePlayed.Game; movePlayedTwo.Game] |> List.length)
-    //            @>)
-
-
-    //[<Property(Verbose=true, MaxTest = 10 )>]
-    //let ``Second heuristic is called`` gameOne gameTwo gameThree timelimit moveOne moveTwo = 
-
-        //let moves = [moveOne]
-        //let tree = SpiderTree.createTree gameOne moves 100
-
-        //let playMove (_:Game) (m:MoveType) = 
-        //    match m with 
-        //    | m when m = moveOne -> Continue (gameTwo, [moveTwo]) 
-        //    | _ -> Continue (gameThree, [])
-
-        //let scoreGame (g:Game) = 0
-        //let scoreGameTwo (g:Game) = 3000
-
-        //(Set.ofList [moveOne; moveTwo;] |> Set.count = 2 && 
-            //Set.ofList [gameOne; gameTwo; gameThree] |> Set.count = 3) ==> 
-            //lazy (test <@
-                //            Search.rollout timelimit playMove Set.empty Map.empty [(scoreGame, 1); (scoreGameTwo, 1)]  tree gameOne moves
-                //            |> fst
-                //            |> SpiderTree.findBestScore = 3000
-                //@>)
