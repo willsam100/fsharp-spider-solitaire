@@ -7,8 +7,40 @@
 #load "SpiderSolitare.fs"
 #load "Operations.fs"
 #load "SpiderSolver.fs"
-open SpiderSolitare.Solver.Bellman
+open SpiderSolitare.Solver.QlearningWithFeatues
 open SpiderSolitare.Operations.App
+open SpiderSolitare.Game
+open System
+
+
+let rnd = Random()
+
+let playTillEnd game = 
+    let rec playMoves moves history game = 
+        match game with 
+        | Lost _ -> moves
+        | Won -> moves
+        | Continue (g,ms) -> 
+            let newGames = 
+                ms 
+                |> List.map (fun m -> m, GameMover.playMove m g)
+                |> List.filter (fun (_,x) -> List.contains x history |> not)
+            let len = List.length newGames
+
+
+            newGames
+            |> List.skip (Math.Min(len, rnd.Next(0, len)))
+            |> List.tryHead
+            |> function 
+            | None -> moves
+            | Some (m,x) -> 
+                playMoves (m :: moves) (x :: history) game
+
+    playMoves [] List.empty game
+    |> List.map (fun x -> x.ToString()) 
+    |> String.concat ", "
+    |> (printfn "%s")
+
 
 
 

@@ -987,6 +987,10 @@ module ScrathPad =
     | Two -> (13 * 13) * 50
     | Three -> (13 * 13) * 60
     | Four -> (13 * 13) * 70
+    | Five -> (13 * 13) * 70
+    | Six -> (13 * 13) * 70
+    | Seven -> (13 * 13) * 70
+    | Eight -> (13 * 13) * 70
 
     let suitCompletion game = 
         [game.Hearts; game.Spades; game.Clubs; game.Diamonds] |> List.map scoreSuit |> List.sum |> float
@@ -1125,50 +1129,67 @@ module GameState =
         | GetLookUpTable of GameResult * MoveType * GameResult option AsyncReplyChannel
         | SetBandit of GameResult * MoveType
         | GetBandit of GameResult * MoveType * int AsyncReplyChannel
+        | AddGame of GameResult
+        | GetGames of GameResult list AsyncReplyChannel
 
-    let gameState =
+    let gameState () =
         MailboxProcessor.Start(fun inbox ->
-            let rec loop (delta, uValues, lookUpTable, bandit) = 
+            let rec loop (delta, uValues, lookUpTable, bandit, games) = 
                 async {
                     let! msg = inbox.Receive()
                     match msg with 
                     | SetDelta x -> 
-                        return! loop (x, uValues,lookUpTable, bandit)
+                        return! loop (x, uValues,lookUpTable, bandit, games)
                     | GetDelta rc -> 
                         rc.Reply delta
-                        return! loop (delta, uValues,lookUpTable, bandit)
+                        return! loop (delta, uValues,lookUpTable, bandit, games)
                     | GetUtility (g, rc) -> 
-                        Map.tryFind g uValues |> Option.defaultValue 0. |> rc.Reply
-                        return! loop (delta, uValues,lookUpTable, bandit)
+                        Map.tryFind g uValues |> Option.defaultValue 10. |> rc.Reply
+                        return! loop (delta, uValues,lookUpTable, bandit, games)
                     | SetUtility (g, value) -> 
-                        return! loop (delta, Map.add g value uValues, lookUpTable, bandit)
+                        return! loop (delta, Map.add g value uValues, lookUpTable, bandit, games)
                     | GetAllUvalues rc -> 
                         rc.Reply uValues
-                        return! loop (delta, uValues, lookUpTable, bandit)
+                        return! loop (delta, uValues, lookUpTable, bandit, games)
                     | SetLookUpTable (g,m,result) -> 
-                        return! loop (delta, uValues, Map.add (g,m) result lookUpTable, bandit)
+                        return! loop (delta, uValues, Map.add (g,m) result lookUpTable, bandit, games)
                     | GetLookUpTable (g,m,rc) -> 
                         Map.tryFind (g,m) lookUpTable |> rc.Reply
-                        return! loop (delta, uValues, lookUpTable, bandit)
+                        return! loop (delta, uValues, lookUpTable, bandit, games)
                     | SetBandit (g,m) -> 
                         let playedCount = Map.tryFind (g,m) bandit |> Option.defaultValue 0
-                        return! loop (delta, uValues, lookUpTable, Map.add (g,m) (playedCount + 1) bandit)
+                        return! loop (delta, uValues, lookUpTable, Map.add (g,m) (playedCount + 1) bandit, games)
                     | GetBandit (g,m,rc) -> 
                         Map.tryFind (g,m) bandit |> Option.defaultValue 0 |> rc.Reply
-                        return! loop (delta, uValues, lookUpTable, bandit)
+                        return! loop (delta, uValues, lookUpTable, bandit, games)
+                    | AddGame g -> 
+                        let spades g = GameResult.fold Zero Zero (fun x _ -> x.Spades) g
+                        let games =
+                            if Set.forall (fun x -> spades x <> spades g) games then 
+                                g |> GameResult.fold "" "" (fun g _ -> Game.toString g) |> printfn "%s"
+                                printfn "Another run completed"
+                                Set.add g games
+                            else games
+                        return! loop (delta, uValues, lookUpTable, bandit, games)
+                    | GetGames rc -> 
+                        games |> Set.toList |> rc.Reply
+                        return! loop (delta, uValues, lookUpTable, bandit, games)
+
 
                 }
-            loop (0.1, Map.empty, Map.empty, Map.empty) )
+            loop (0.1, Map.empty, Map.empty, Map.empty, Set.empty) )
 
 
 module Bellman = 
 
-    let gamma = 0.9
-    let epsilon = 0.01 
-    let errorBandit = 0.01
+    let gamma = 0.99
+    let epsilon = 0.001 
+    //let errorBandit = 0.001
+
+    let globalGameState = gameState() 
 
     let getNextState (g,m) = 
-        gameState.PostAndReply (fun rc -> GetLookUpTable (g,m,rc)) |> function 
+        globalGameState.PostAndReply (fun rc -> GetLookUpTable (g,m,rc)) |> function 
         | Some x -> x
         | None -> 
             match g with 
@@ -1176,28 +1197,34 @@ module Bellman =
             | Lost _ -> g
             | Continue (game,_) -> 
                 let s' = GameOperations.playMoveToMinima m game
-                gameState.Post <| SetLookUpTable (g,m,s')
+                globalGameState.Post <| SetLookUpTable (g,m,s')
                 s'
 
     let getUtility state = 
-        gameState.PostAndReply (fun rc -> GetUtility (state, rc))
+        globalGameState.PostAndReply (fun rc -> GetUtility (state, rc))
 
     let updateUtitlity (state, utiltiy) = 
-        gameState.Post <| SetUtility (state, utiltiy)
+        globalGameState.Post <| SetUtility (state, utiltiy)
 
     let getBandit (g,m) = 
-        gameState.PostAndReply (fun rc -> GetBandit (g,m,rc))
+        globalGameState.PostAndReply (fun rc -> GetBandit (g,m,rc))
 
     let setBandit (g,m) = 
-        gameState.Post <| SetBandit (g,m)
+        globalGameState.Post <| SetBandit (g,m)
+
+    let getGames () =
+        globalGameState.PostAndReply GetGames
+
+    let addGame g = 
+        globalGameState.Post <| AddGame g
 
 
-    type NextMove = Learning | Playing
+    type NextMove = Learning of float | Playing
 
     let getNextBestUtilities random (state, history) = 
         match state with 
-        | Won -> [None, state, getUtility state]
-        | Lost s -> [None, state, getUtility state]
+        | Won -> [None, state, 10000.]
+        | Lost s -> [None, state, -1000.]
         | Continue (s, moves) -> 
 
             let states' = 
@@ -1208,66 +1235,93 @@ module Bellman =
                     let s' = getNextState (state, a)
                     Some a, s', getUtility s')
                 |> List.filter (fun (_,s',_) -> Set.contains s' history |> not)
+                |> List.filter (fun (_,s',_) -> state <> s')
                 |> (fun xs -> 
-                    if List.isEmpty xs then [(None, Lost s, -100.)]
+                    if List.isEmpty xs then [(None, Lost s, -1000.)]
                     else xs )
 
             match random with 
-            | Learning -> 
-                if rand.NextDouble() < errorBandit && List.contains Stock moves then
+            | Learning errorBandit -> 
+                let randomValue = rand.NextDouble()
+                if  randomValue < errorBandit && List.contains Stock moves then
                     let stock = getNextState (state, Stock)
                     [Some Stock, stock, GameOperations.getReward stock]
+                elif randomValue < errorBandit && List.length states' > 1 then 
+                    let bestMove = states' |> List.maxBy (fun (_,_,u) -> u)     
+                    let statesWithoutBestMove = states' |> List.filter (fun x -> x <> bestMove)
+                    let index = rand.Next(0, (List.length statesWithoutBestMove) - 1)
+                    List.skip index statesWithoutBestMove |> List.head |> List.singleton
                 else 
                     states' 
             | Playing -> states'
 
     let getNextBestUtility random (state, history) = 
-        (state, history) |> getNextBestUtilities random |> List.maxBy (fun (_,_,u) -> u)     
+        (state, history) |> getNextBestUtilities random |> List.maxBy (fun (_,_,u) -> u)  
 
-    let valueIteration game = 
+    let computeUtility errorBandit (state, history) = 
+        let a, s', utility = getNextBestUtility (Learning errorBandit) (state,history)
+        let reward = GameOperations.getReward state
+        let discountedFutureUtility = gamma * utility
+        a, s', reward + discountedFutureUtility
 
-        let computeUtility (state, history) = 
-            let a, s', utility = getNextBestUtility Learning (state,history)
-            let reward = GameOperations.getReward state
-            let discountedFutureUtility = gamma * utility
-            a, s', reward + discountedFutureUtility
+    let asyncTask (tDuration, errorBandit, deltaTimeLimit) log game = 
+        let deltaTimer = Stopwatch.StartNew()
+        let gs = gameState() 
 
         let getDelta () = 
-            gameState.PostAndReply GetDelta
+            gs.PostAndReply GetDelta
 
         let setDelta f = 
-            gameState.Post <| SetDelta f
+            gs.Post <| SetDelta f
 
-        let numberOfStatesExplored () =
-            let gamesStates = gameState.PostAndReply GetAllUvalues
-            Map.count gamesStates |> float
+        while (getDelta () > epsilon * (1. - gamma) / gamma && deltaTimer.Elapsed.TotalMinutes < deltaTimeLimit) do
+            setDelta 0.
 
-        [1.;] |> List.iter (fun tDuration -> 
-            while (getDelta () > epsilon * (1. - gamma) / gamma) do
-                setDelta 0.
+            let rec runValueUpdate (t: Stopwatch) (state, history) = 
+                match state with 
+                | Won -> ()
+                | Lost _ -> ()
+                | Continue (game, _) -> 
+                    //let errorBandit = 
+                        //if tDuration = 10. && game.Spades = Two then 
+                        //    0.1
+                        //else errorBandit
 
-                let rec runValueUpdate (t: Stopwatch) (state, history) = 
-                    match state with 
-                    | Won -> ()
-                    | Lost _ -> ()
-                    | Continue (game, _) -> 
+                    let currentUtility = getUtility state
+                    let a, s', bestUtilityOfNextState = computeUtility errorBandit (state, history)
+                    let history = Set.add s' history
 
-                        if game.Spades = Two then ()
+                    updateUtitlity (state, bestUtilityOfNextState)
+                    let difference = Math.Abs (bestUtilityOfNextState - currentUtility)
+                    if (difference > getDelta ()) then 
+                        setDelta difference
 
-                        let currentUtility = getUtility state
-                        let a, s', bestUtilityOfNextState = computeUtility (state, history)
-                        let history = Set.add s' history
+                    addGame s'
+                    if (t.Elapsed.TotalMinutes < tDuration) then runValueUpdate t (s', history)
 
-                        updateUtitlity (state, bestUtilityOfNextState)
-                        let difference = Math.Abs (bestUtilityOfNextState - currentUtility)
-                        if (difference > getDelta ()) then 
-                            setDelta difference
+            runValueUpdate (Stopwatch.StartNew()) (game, Set.empty)
+            getDelta () |> sprintf "%f" |> log 
 
-                        if (t.Elapsed.TotalMinutes < tDuration) then runValueUpdate t (s', history)
+    let valueIteration game = 
+        addGame game
+        let logger s = printfnWithColor ConsoleColor.DarkYellow s
+        [   //(1., 0.1, 5.); (5., 0.01, 10.); (10., 0.05, 10.); (10., 0.05, 10.); (10., 0.05, 10.); 
+            (50., 0.05, 50.);]  
+        |> List.iter (fun config -> 
 
-                runValueUpdate (Stopwatch.StartNew()) (game, Set.empty)
-                getDelta () |> sprintf "%f" |> printfnWithColor ConsoleColor.DarkYellow
-            printfn "Converged for: %f" tDuration )
+            let configExplor = (6., 0.3, 6.)
+            let tasks = getGames () 
+            printfn "Running %d" (List.length tasks)
+
+            [game]
+            |> PSeq.ofList
+            |> PSeq.map (fun x -> if x = game then x,config, logger  else x,configExplor, (fun _ -> ()))
+            |> PSeq.iter (fun (x, config, log) -> asyncTask config log x)
+            printfn "All tasks completed")
+
+        printfn "Running last convergence"
+        asyncTask (100., 0.001, 50.) logger game
+        
 
     let game = 
         let rand = new System.Random(0)
@@ -1275,187 +1329,462 @@ module Bellman =
 
 
     let playGame () = 
-        let uValuesForGame = gameState.PostAndReply GetAllUvalues
+        let uValuesForGame = globalGameState.PostAndReply GetAllUvalues
 
-        let rec play n g u = 
+        let rec play n (g, history) u = 
             match g with 
             | Won -> printfn "Game Won"
             | Lost _ -> printfn "Game Lost"
             | Continue (s,ms) -> 
                 printfn "%s" <| Game.toString s
-                let (_, s',u') = getNextBestUtility Playing (g, Set.empty)
-                if (n > 0 && Map.containsKey s' uValuesForGame && g <> s') then play (n - 1) s' u'
-                elif (g = s') 
-                    then play (n - 1) (GameOperations.playMoveToMinima Stock s ) u'
+                let (_, s',u') = getNextBestUtility Playing (g, history)
+                let history = Set.add s' history
+                if (n > 0 && g <> s') then play (n - 1) (s', history) u'
 
-        play 10000000 game 0.
+        play 10000000 (game, Set.empty) 0.
 
 
 module PolicyIteration = 
 
-    let gamma = 0.9
-    let epsilon = 0.1
-    ////let mutable delta = 1.
-    ////let mutable uValuesForGame = Map.empty
+    type Message = 
+        | GetQuality of (Game * MoveType * float AsyncReplyChannel)
+        | SetQuality of (Game * MoveType * float)
+        | GetCount of (Game * MoveType * int AsyncReplyChannel)
+        | SetCount of (Game * MoveType)
+        | GetPolicy of AsyncReplyChannel<Map<Game * MoveType, float>>
+
+
+    let gameState = 
+        MailboxProcessor.Start(fun inbox -> 
+        
+            let rec loop (qstar, exploration) = 
+                async {
+
+                    let! msg = inbox.Receive()
+                    match msg with 
+                    | GetQuality (g,m,rc) -> 
+                        let defaultValue = if m = Stock then 50. else 0.
+                        qstar |> Map.tryFind (g,m) |> Option.defaultValue defaultValue |> rc.Reply
+                    | SetQuality (g,m,v) -> 
+                        let qstar = qstar |> Map.add (g,m) v
+                        return! loop (qstar, exploration)
+                    | GetCount (g,m,rc) -> 
+                        exploration |> Map.tryFind (g,m) |> Option.defaultValue 0 |> rc.Reply
+                    | SetCount (g,m) -> 
+                        let v = exploration |> Map.tryFind (g,m) |> Option.defaultValue 0
+                        let exploration = exploration |> Map.add (g,m) (v + 1)
+                        return! loop (qstar, exploration)
+                    | GetPolicy rc -> 
+                        rc.Reply qstar
+
+                    return! loop (qstar, exploration)
+                }
+
+            loop (Map.empty, Map.empty))
+
+    let getPolicy game move = 
+        gameState.PostAndReply (fun rc -> GetQuality (game, move, rc))
+
+    let getCount game move = 
+        gameState.PostAndReply (fun rc -> GetCount (game, move, rc))
+
+    let setPolicy game move value = 
+        gameState.Post <| SetQuality (game,move,value)
+
+    let setCount game move = 
+        gameState.Post <| SetCount (game,move)
+
+    let getPolicyForall () = 
+        gameState.PostAndReply GetPolicy
+
+    let gamma = 0.99
+    let alpha = 0.5 // weighting to take of each new sample
+    let k = 2. // exploration constant 
+
+    let explorationF k u n = u  + (k / n)
+
+    let getBestPolicyForMoves kk game moves = 
+
+        let getBestPolicy game m = 
+            let q = getPolicy game m 
+            let n = getCount game m |> float
+            explorationF k q n
+
+        moves
+        |> List.map (fun m -> m, getBestPolicy game m)
+        |> List.maxBy (fun (m,v) -> v)
+
+
+    let computePolicyUpdate currentGame action newState game moves = 
+        let r = GameOperations.getReward newState
+        let (m',qStarS') = getBestPolicyForMoves 0. game moves
+
+        let value = alpha * r + gamma * qStarS'
+        setPolicy currentGame action value
+        setCount currentGame action
+
+        getBestPolicyForMoves 2. game moves |> fst
+        //if List.isEmpty history |> not then
+
+    let rec compute (state, history) action = 
+        printfn "%s" <| Game.toString state
+        printfn "Policy: %f" <| getPolicy state action
+        printfn "State Count: %d" <| getCount state action
+        // printfn "History Count: %d" <| List.length history
+        printfn "Computing values\n"
+        let s' = GameOperations.playMoveToMinima action state
+
+        let handleLost () = 
+            printfnWithColor ConsoleColor.Red "Game Lost --------- No more moves"
+            //history |> List.iter (fun (state, action, s', g, ms) -> 
+                //computePolicyUpdate [] state action s' g ms |> ignore)
+            setPolicy state action (alpha * -1000.) 
+            setCount state action
+
+        match s' with 
+        | Won -> 
+            printfnWithColor ConsoleColor.Green "Game Won"
+            history |> List.iter (fun (state, action, s', g, ms) -> 
+                computePolicyUpdate state action s' g ms |> ignore)
+            setPolicy state action (alpha * 10000.) 
+            setCount state action
+        | Lost _ -> handleLost()
+        | Continue (g,ms) -> 
+
+            // let hist = history |> List.map (fun (_,_,state,_,_) -> state)
+            let ms = GameOperations.cleanMoves [] g ms
+            if List.isEmpty ms || List.length history > 500 then handleLost () 
+            else 
+                let m' = computePolicyUpdate state action s' g ms
+                // let history = (state, action, s', g, ms) :: history
+                // compute (g, [history]) m'
+                compute (g, []) m'
+
+    let policyIteration game = 
+        GameResult.iter (game()) <| fun game moves -> 
+            let action = getBestPolicyForMoves 2. game moves |> fst
+            for _ in 1 .. 1000 do 
+                compute (game, []) action
+
+    let game () = 
+        let rand = new System.Random(0)
+        (GameMover.startGame (Card.deck Card.One) rand)
+        |> GameResult.map (fun game moves-> game |> GameMover.unHideGame, moves)
+
+    let playGame () =
+        let rec play history game = 
+            if Set.contains game history then "Game Lost - same state"
+            else
+                game |> GameResult.fold "Game Lost" "Game Won" (fun game moves -> 
+                    printfn "%s" <| Game.toString game
+                    printfn "Playing Game\n"
+                    let action = getBestPolicyForMoves 0. game moves |> fst
+                    let s' = GameOperations.playMoveToMinima action game 
+                    let history = Set.add s' history
+                    s' |> play history) 
+        play Set.empty (game())
+
+
+module QlearningWithFeatues = 
 
     type Message = 
-        | SetDelta of float 
-        | GetDelta of AsyncReplyChannel<float>
-        | GetQuality of (GameResult * MoveType * AsyncReplyChannel<float>)
-        | SetQuality of (GameResult * MoveType * float)
-        | GetPolicy of AsyncReplyChannel<Map<GameResult * MoveType, float>>
+        | GetQuality of (float list AsyncReplyChannel)
+        | SetQuality of (float list)
+        | GetCount of (Game * MoveType * int AsyncReplyChannel)
+        | SetCount of (Game * MoveType)
 
 
+    let gameState = 
+        MailboxProcessor.Start(fun inbox -> 
+        
+            let rec loop (weights, exploration) = 
+                async {
 
-    //    // 
-   
-    //let gameState =
-    //    MailboxProcessor.Start(fun inbox ->
-    //        let rec loop (delta, uValues) = 
-    //            async {
-    //                let! msg = inbox.Receive()
-    //                match msg with 
-    //                | SetDelta x -> 
-    //                    return! loop (x, uValues)
-    //                | GetDelta rc -> 
-    //                    rc.Reply delta
-    //                    return! loop (delta, uValues)
-    //                | GetUtility (g, rc) -> 
-    //                    Map.tryFind g uValues |> Option.defaultValue 0. |> rc.Reply
-    //                    return! loop (delta, uValues)
-    //                | SetUtility (g, value) -> 
-    //                    return! loop (delta, Map.add g value uValues)
-    //                | GetAllUvalues rc -> 
-    //                    rc.Reply uValues
-    //                    return! loop (delta, uValues)
+                    let! msg = inbox.Receive()
+                    match msg with 
+                    | GetQuality (rc) -> 
+                        rc.Reply weights
+                        return! loop (weights, exploration)
+                    | SetQuality weights -> 
+                        return! loop (weights, exploration)
+                    | GetCount (g,m,rc) -> 
+                        exploration |> Map.tryFind (g,m) |> Option.defaultValue 0 |> rc.Reply
+                        return! loop (weights, exploration)
+                    | SetCount (g,m) -> 
+                        let v = exploration |> Map.tryFind (g,m) |> Option.defaultValue 0
+                        let exploration = exploration |> Map.add (g,m) (v + 1)
+                        return! loop (weights, exploration)
+                }
 
-    //            }
-    //        loop (0.1, Map.empty) )
+            loop (List.empty, Map.empty))
 
+    let getWeights () = 
+        gameState.PostAndReply GetQuality
 
-    //let getUtility state = 
-    //    gameState.PostAndReply (fun rc -> GetUtility (state, rc))
-    //    //match Map.tryFind state uValuesForGame with 
-    //    //| Some x -> x
-    //    //| None -> 0.
+    let getCount game move = 
+        gameState.PostAndReply (fun rc -> GetCount (game, move, rc)) |> float
 
-    //let updateUtitlity (state, utiltiy) = 
-    //    gameState.Post <| SetUtility (state, utiltiy)
-    //    //uValuesForGame <- Map.add state utiltiy uValuesForGame
+    let setWeights weights = 
+        gameState.Post (SetQuality weights) 
 
-    //let getNextBestUtility state = 
-    //    match state with 
-    //    | Won -> None, state, getUtility state
-    //    | Lost s -> None, state, getUtility state
-    //    | Continue (state, moves) -> 
-    //        moves
-    //        |> (ScrathPad.filterLocalLoopMoves GameMover.playMove state)
-    //        |> ScrathPad.moveOrdering state
-    //        |> List.map (fun a ->  
-    //            let s' = GameMover.playMove a state
-    //            Some a, s', getUtility s')
-    //        |> List.maxBy (fun (_,_,u) -> u) 
-
-    //let valueIteration game = 
-
-    //    let getReward state = 
-    //        match state with 
-    //        | Won -> 1000.
-    //        | Lost _ -> -1000.
-    //        | Continue (state, moves) -> 
-    //            let suitCompletion = 
-    //                let scoreSuit = function 
-    //                    | Zero -> 0
-    //                    | One -> (13 * 13) * 40
-    //                    | Two -> (13 * 13) * 50
-    //                    | Three -> (13 * 13) * 60
-    //                    | Four -> 1000
-    //                [state.Hearts; state.Spades; state.Clubs; state.Diamonds] 
-                    
-    //                |> List.map scoreSuit |> List.sum
-
-    //            let distanceToEmptyColumn = 
-    //                let shortestColumn = 
-    //                    state |> Game.getAllTabs  |> List.map Tableau.length |> List.map (fun x -> x + 1) |> List.min
-    //                10 / shortestColumn
-
-    //            let lengthOfLogestRun = 
-    //                state |> GameMover.getRuns  |> List.map (snd >> List.length) |> List.max
-
-    //            let runToLengthValue = 
-    //                let lengthOfRuns = 
-    //                    state |> Game.getAllTabs  |> List.map Tableau.getRun |> List.map (List.length)
-    //                let lengthOfVisible = 
-    //                    state |> Game.getAllTabs  |> List.map Tableau.getVisible |> List.map (List.length)
-
-    //                List.zip lengthOfRuns lengthOfVisible
-    //                |> List.map (fun (r,v) -> if (v = 0) then 0 else r/v)
-    //                |> List.sum
-
-    //            //let lengthOfRuns = 
-    //                //state 
-    //                //|> Game.getAllTabs 
-    //                //
-    //                //|> List.map Tableau.getRun 
-    //                //|> List.map (List.length)
-    //                //|> List.filter (fun x -> x = 0)
-    //                //|> List.map (fun x -> x/10)
-    //                //|> List.sum
-
-    //            suitCompletion + distanceToEmptyColumn + lengthOfLogestRun + runToLengthValue  |> float
-
-    //    let computeUtility state = 
-    //        let a, s', utility = getNextBestUtility state 
-    //        let reward = getReward state
-    //        let discountedFutureUtility = gamma * utility
-    //        a, s', reward + discountedFutureUtility
-
-    //    let getDelta () = 
-    //        gameState.PostAndReply GetDelta
-
-    //    let setDelta f = 
-    //        gameState.Post <| SetDelta f
-
-    //    while (getDelta () > epsilon * (1. - gamma) / gamma) do
-    //        setDelta 0.
-
-    //        let rec runValueUpdate (t: Stopwatch) state = 
-
-    //            match state with 
-    //            | Won -> () 
-    //            | Lost _ -> ()
-    //            | Continue (game, _) -> 
-
-    //                let completed = 
-    //                    [game.Hearts; game.Spades; game.Clubs; game.Diamonds]
-    //                    |> List.exists (fun x -> x = One || x = Two)
-
-    //                if completed then () else
-
-    //                let currentUtility = getUtility state
-    //                let a, s', bestUtilityOfNextState = computeUtility state
-    //                updateUtitlity (state, bestUtilityOfNextState)
-    //                let difference = Math.Abs (bestUtilityOfNextState - currentUtility)
-    //                if (difference > getDelta ()) then 
-    //                    setDelta difference
-
-    //                if (t.Elapsed.TotalSeconds < 10.) then runValueUpdate t s'
-
-    //        runValueUpdate (Stopwatch.StartNew()) game 
-    //        printfn "%f" <| getDelta ()
+    let setCount game move = 
+        gameState.Post <| SetCount (game,move)
 
 
-    //let game = 
-    //    let rand = new System.Random(0)
-    //    (GameMover.startGame (Card.deck Card.One) rand)
+    let stockFeature history game move = 
+        MoveType.fold 0.5 (fun _ -> 0.) (fun _ -> 0.) move
+
+    let noValueMove history game move = 
+        move |> MoveType.foldMove 0. (fun move -> 
+
+        let columnsWithOne = 
+            game
+            |> Game.getAllTabsWithColumn
+            |> List.map (fun (c,t) -> c, t |> Tableau.getVisible |> List.length)
+            |> List.filter (fun (_,t) -> t = 1)
+            |> List.map fst
+
+        let emptyColum = 
+            game
+            |> Game.getAllTabsWithColumn
+            |> List.map (fun (c,t) -> c, t |> Tableau.getVisible |> List.length)
+            |> List.filter (fun (_,t) -> t = 0)
+            |> List.map fst
+
+        if List.contains move.To emptyColum  && List.contains move.From columnsWithOne then 
+            1.
+        else 0. )
+
+    let canFlip history game move = 
+        move |> MoveType.fold 0. (fun _ -> 1.) (fun _ -> 0.)
+
+    let canGrowRun history  game move = 
+        move |> MoveType.foldMove 0. (fun move -> 
+            let toColum = Game.getTabForColumn game move.To
+            if Tableau.length toColum > 0 then 1. else 0. )
+
+    let canMoveToEmptyColumn history  game move = 
+        move |> MoveType.foldMove 0. (fun move -> 
+            let toColum = Game.getTabForColumn game move.To
+            if Tableau.length toColum = 0 then 1. else 0. )
+
+    let canAllowFlip history game move = 
+        move |> MoveType.foldMove 0. (fun move -> 
+            let toColumn = Game.getTabForColumn game move.From
+            let lengthOfCardsToplay = toColumn |> Tableau.getVisible |> List.takeWhile (fun c -> c <> move.Card) |> List.length
+            if lengthOfCardsToplay + 1 = (toColumn |> Tableau.getVisible |> List.length) && Tableau.hasHiddenCards toColumn 
+            then 1. 
+            else 0. )
+
+    let breakRunForLongerRun history  game move = 
+        move |> MoveType.foldMove 0. (fun move -> 
+            let toColumn = Game.getTabForColumn game move.To
+            let fromColumn = Game.getTabForColumn game move.To
+            let length = fromColumn |> Tableau.getVisible |> List.takeWhile (fun c -> c <> move.Card) |> List.length |> ((+) 1)
+            let toRunLength = Tableau.getRun toColumn |> List.length
+            let fromRunLength = Tableau.getRun fromColumn |> List.length
+            if toRunLength + length > fromRunLength && fromRunLength > 1 then 1. else 0. )
+
+    let shouldFlip history game move = 
+        let isFlip = move |> MoveType.fold false (fun _ -> true) (fun _ -> false)
+
+        if List.length game.Stock = 0 && isFlip 
+        then 1.
+        else 0.
+
+    let stockPlayedWhenGameAtMaximumState history game move = 
+
+        let validMoves = GameMover.validMoves game
+
+        let canPlayStock = validMoves |> List.contains Stock
+        let canPlayOtherMoves = List.length validMoves > 1
+        let remainingMovesAreNotMaximising = 
+            validMoves |> List.map (fun m -> breakRunForLongerRun history game move) |> List.forall (fun x -> x = 1.)
+
+        if canPlayStock && canPlayOtherMoves && remainingMovesAreNotMaximising then 1. else 0. 
 
 
-    //let playGame () = 
-        //let uValuesForGame = gameState.PostAndReply GetAllUvalues
+    let makingRandomChoice history game move = 
+        let validMoves = GameMover.validMoves game 
 
-        //let rec play n g u = 
-        //    printfn "%s" <| Game.toString g
-        //    let (a,s',u') = getNextBestUtility g
-        //    if (u' > u && Map.containsKey s' uValuesForGame) then play (n - 1) s' u'
+        let toColumnMoves = 
+            validMoves |> List.choose (fun move -> 
+                move |> MoveType.foldMove None (fun move -> 
+                    move.To |> Some
+            ))
 
-        //play 10000000 game 0.
+        if List.length toColumnMoves > 1 then 1. else 0. 
+
+
+    // Not required when playing with playToLocalMinima
+    let revealLongestColumn history game move = 
+        let lastMoveWasStock = 
+            match history with 
+            | g::xs -> 
+                match g with 
+                | Won -> false
+                | Lost _ -> false
+                | Continue (g,_) -> 
+                    let gameWithCards = 
+                        game 
+                        |> Game.getAllTabsWithColumn
+                        |> List.map (fun (c,t) -> 
+                            if t |> Tableau.getVisible |> List.length = 0 then c,t
+                            else c,{Visible = List.skip 1 t.Visible; Hidden = t.Hidden})
+                        |> (fun tabs -> 
+                            Game.updateTableaus tabs game)
+                        |> (fun g -> {g with Stock = g.Stock})
+                    gameWithCards = g
+            | _ -> false
+
+        let columnOfLongestRunBeforeStock () = 
+            game 
+            |> Game.getAllTabsWithColumn 
+            |> List.filter (fun (_,t) -> t |> Tableau.getVisible |> List.length > 1)
+            |> List.map (fun (c,t) -> 
+                let cards = t |> Tableau.getVisible  |> List.skip 1 
+                c, {Visible = cards; Hidden = []} |> Tableau.getRun |> List.length)
+            |> List.maxBy (fun (c,length) -> length)
+            |> fst
+
+        let moveIsForFrom () = 
+            move |> MoveType.foldMove false (fun move -> columnOfLongestRunBeforeStock () = move.From)
+
+        if lastMoveWasStock && moveIsForFrom () then 1. else 0. 
+
+    let growLongestColumn history game move = 
+        let longestRunColumn = 
+            game
+            |> Game.getAllTabsWithColumn 
+            |> List.map (fun (c,t) -> c, t |> Tableau.getRun |> List.length)
+            |> List.maxBy (fun (c,t) -> t)
+            |> fst
+
+        move |> MoveType.foldMove 0. (fun move -> if move.To = longestRunColumn then 1. else 0.)
+
+
+    let features = 
+        [
+            growLongestColumn
+            stockPlayedWhenGameAtMaximumState
+            breakRunForLongerRun
+            stockFeature
+            noValueMove 
+            canFlip
+            canGrowRun
+            canMoveToEmptyColumn
+            canAllowFlip
+            shouldFlip
+        ]
+
+    let gamma = 0.2
+    let alpha = 0.5 // weighting to take of each new sample
+    let k = 0.9 // exploration constant 
+
+    let explorationF k u n = u  + (k / n)
+
+    let getQValue weights history game move = 
+        List.zip weights features
+        //|> List.map (fun (w,f) -> printfn "W:%f F:%f" w (f game move); (w,f))
+        |> List.map (fun (w,f) -> w * f history game move)
+        |> List.sum
+
+    let getQvalueMaxOverAction k history game moves = 
+        let weights = getWeights()
+        let explore qValue move = 
+            if k = 0. then 
+                qValue 
+            else 
+                explorationF k qValue <| getCount game move 
+
+        //printfn "Finding best qValue"
+        moves
+        |> List.map (fun m -> m, getQValue weights history game m)
+        |> List.map (fun (m, qValue) -> m, explore qValue m)
+        //|> List.map (fun (m, qValue) -> printfn "%f" qValue; (m,qValue))
+        |> List.maxBy (fun (m,v) -> v)
+
+    let computeWeightsForFeatures weights difference history game move = 
+        List.zip weights features 
+        |> List.map (fun (w,f) -> 
+            let fValue = f history game move
+            let result = w  + (fValue * difference * alpha)
+            //printfn "w:%f f:%f reward:%f Result:%f" w fValue difference result
+            result
+            )
+
+    let computeDifference weights currentGame currentMove reward history game moves = 
+        let bestQValue = getQvalueMaxOverAction 0. history game moves |> snd
+        let currentQvalue = getQValue weights history currentGame currentMove
+        let x = reward + (gamma * bestQValue) - currentQvalue
+        //printfn "reward:%f bestQValue:%f getQvalue:%f difference:%f" reward bestQValue currentQvalue x
+        x
+
+    let rec compute (state, history) action = 
+        printfn "%s" <| Game.toString state
+        printfn "Computed weights:"
+        let weights = getWeights()  
+
+        weights |> List.map (sprintf "%f") |> (fun xs -> String.concat "," xs) |>  printfn "%s"
+        let s' = GameOperations.playMoveToMinima action state
+
+        let handleWonGame () = 
+            printfnWithColor ConsoleColor.Red "Game Won"
+            let diff = 1. - getQValue weights  history state action
+            computeWeightsForFeatures weights diff history state action |> setWeights
+            setCount state action
+
+        let handleLostGame () = 
+            printfnWithColor ConsoleColor.Red "Game Lost --------- No more moves"
+            let diff = -1. - getQValue weights history state action
+            computeWeightsForFeatures weights diff history state action |> setWeights
+            setCount state action
+
+        match s' with 
+        | Won -> handleWonGame ()
+        | Lost _ -> handleLostGame()
+        | Continue (g,ms) ->
+            let ms = GameOperations.cleanMoves history g ms
+            let r = GameOperations.getReward s'
+            printfn "Reward: %f" r
+            ms |> List.map App.printMove |> (fun xs -> String.concat "," xs) |> printfn "%s"
+            match ms with 
+            | [] -> handleLostGame ()
+            | _ -> 
+                let difference = computeDifference weights state action r history g ms
+                computeWeightsForFeatures weights difference history state action |> setWeights
+                let m' = getQvalueMaxOverAction k history g ms |> fst
+                let history = s' :: history
+                compute (g, history) m'
+
+    let qFeatureLearning game = 
+        let weights = List.init features.Length (fun x -> 1.) 
+        weights |> List.map (sprintf "%f") |> (fun xs -> String.concat "," xs) |>  printfn "%s"
+        setWeights weights
+        printfn "Set Weights"
+        GameResult.iter (game()) <| fun game moves -> 
+            let action = getQvalueMaxOverAction k [] game moves |> fst
+            printfn "Playing first move!"
+            for _ in 1 .. 1000 do 
+                compute (game, List.empty) action
+
+    let game () = 
+        let rand = new System.Random()
+        (GameMover.startGame (Card.deck Card.One) rand)
+        |> GameResult.map (fun game moves-> game |> GameMover.unHideGame, moves)
+
+    let playGame () =
+        let rec play history game = 
+            if List.contains game history then "Game Lost - same state"
+            else
+                game |> GameResult.fold "Game Lost" "Game Won" (fun game moves -> 
+                    printfn "%s" <| Game.toString game
+                    printfn "Playing Game\n"
+                    let action = getQvalueMaxOverAction 0. history game moves |> fst
+                    let s' = GameOperations.playMoveToMinima action game 
+                    let history =  s' :: history
+                    s' |> play history) 
+        play [] (game())
+
+
+    

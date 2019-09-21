@@ -1,5 +1,6 @@
 ﻿namespace SpiderSolitare.Operations
 open SpiderSolitare.Game
+open System
 
 module MLTab = 
 
@@ -17,6 +18,9 @@ module MLTab =
         folder tableau.Visible 
 
 module GameOperations = 
+
+    let max (a: float) b = 
+        Math.Max (a,b)
 
     let getGameAndMove = function 
         | Continue (game, moves) -> 
@@ -64,6 +68,47 @@ module GameOperations =
                 |> List.map fst
 
             movesThatWinGame @ accpetedMoves
+
+    let filterMovesWithNoValue game moves = 
+
+        let moves = 
+            let columnOfKing =
+                game 
+                |> Game.getAllTabsWithColumn
+                |> List.filter (fun (c,tab) -> Tableau.hasHiddenCards tab |> not)
+                |> List.filter (fun (c,tab) -> tab |> Tableau.getRun |> List.length = (tab |> Tableau.getVisible |> List.length))
+                |> List.filter (fun (c,tab) -> tab |> Tableau.getRun |> List.exists (fun card -> Card.getValue card = 13))
+                |> List.map fst
+
+            moves 
+            |> List.filter (fun x -> 
+                match x with 
+                | Stock -> true
+                | Flip _ -> true 
+                | Move x -> ((columnOfKing |> List.contains x.From) && (Card.getValue  x.Card) = 13) |> not)
+
+        let moves = 
+            let oneCardColumns =
+                game 
+                |> Game.getAllTabsWithColumn
+                |> List.filter (fun (c,tab) -> Tableau.hasHiddenCards tab |> not)
+                |> List.filter (fun (c,tab) -> Tableau.length tab = 1)
+                |> List.map fst
+
+            let emptyColumns =
+                game 
+                |> Game.getAllTabsWithColumn
+                |> List.filter (fun (c,tab) -> Tableau.length tab = 0)
+                |> List.map fst
+
+            moves 
+            |> List.filter (fun x -> 
+                match x with 
+                | Stock -> true
+                | Flip _ -> true
+                | Move x -> (oneCardColumns |> List.contains x.From && emptyColumns |> List.contains x.To) |> not)
+
+        moves
 
     let moveOrdering s ms = 
         if List.isEmpty ms then List.empty else 
@@ -121,68 +166,103 @@ module GameOperations =
         |> List.map snd
 
 
+    let filterMovesToPlayedStates playMove history game moves = 
+        moves 
+        |> List.map (fun m -> m, playMove m game) 
+        |> List.filter (fun (m, g) -> List.contains g history |> not)
+        |> List.map fst
+
 
     let getReward state = 
         match state with 
-        | Won -> 1000.
-        | Lost _ -> -1000.
+        | Won -> 10000.
+        | Lost _ -> -100.
         | Continue (state, moves) -> 
             let suitCompletion = 
                 let scoreSuit = function 
-                    | Zero -> 0
-                    | SuitCompletedStatus.One -> 100 //(13 * 13) * 40
-                    | SuitCompletedStatus.Two -> 200 //(13 * 13) * 50
-                    | SuitCompletedStatus.Three -> 300 //(13 * 13) * 60
-                    | SuitCompletedStatus.Four -> 1000
+                    | Zero -> 0.
+                    | SuitCompletedStatus.One -> 100.
+                    | SuitCompletedStatus.Two -> 200. 
+                    | SuitCompletedStatus.Three -> 300.
+                    | SuitCompletedStatus.Four -> 400.
+                    | SuitCompletedStatus.Five -> 400.
+                    | SuitCompletedStatus.Six -> 600.
+                    | SuitCompletedStatus.Seven -> 700.
+                    | SuitCompletedStatus.Eight -> 800.
                 [state.Hearts; state.Spades; state.Clubs; state.Diamonds] 
                 
                 |> List.map scoreSuit |> List.sum |> float
 
             let distanceToEmptyColumn = 
                 let shortestColumn = 
-                    state |> Game.getAllTabs  |> List.map Tableau.length |> List.map (fun x -> x + 1 |> float) |> List.min
-                1. / shortestColumn
+                    state |> Game.getAllTabs |> List.map (Tableau.length >> float) |> List.min
+                1. / (shortestColumn + 1.)
 
             let lengthOfLogestRun = 
-                1. -  (1. / (state |> GameMover.getRuns  |> List.map (snd >> List.length) |> List.max |> float))
+                let longestRun = state |> Game.getAllTabs |> List.map (Tableau.getRun >> List.length) |> List.max |> float
+                if longestRun = 0. then 0.
+                else
+                    5. -  (1. / longestRun)
 
             let runToLengthValue = 
                 let lengthOfRuns =  
-                    state |> Game.getAllTabs  |> List.map Tableau.getRun |> List.map (List.length >> float)
+                    state |> Game.getAllTabs |> List.map (Tableau.getRun >> List.length >> float)
                 let lengthOfVisible = 
-                    state |> Game.getAllTabs  |> List.map Tableau.getVisible |> List.map (List.length >> float)
+                    state |> Game.getAllTabs |> List.map (Tableau.getVisible >> List.length >> float)
 
-                1. - (1. /
-                    (List.zip lengthOfRuns lengthOfVisible
+                let averageRunToLength = 
+                    List.zip lengthOfRuns lengthOfVisible
                     |> List.map (fun (r,v) -> if (v = 0.) then 0. else  r / v )
-                    |> List.sum))
+                    |> List.sum
 
+                if averageRunToLength = 0. then 0. 
+                else 
+                    1. - (1. / averageRunToLength)
+
+            
             let lengthOfRuns = 
-                1. - (1. /
-                    (state 
+                let averageRunLength = 
+                    state 
                     |> Game.getAllTabs 
-                    |> List.map Tableau.getRun 
-                    |> List.map (List.length >> float)
+                    |> List.map (Tableau.getRun >> List.length >> float)
                     |> List.filter (fun x -> x = 1.)
                     |> List.map (fun x -> x * 2.)
-                    |> List.sum))
+                    |> List.sum
+
+                if averageRunLength = 0. then 0. 
+                else 
+                    2. - (1. / averageRunLength)
+
+            let hiddenCardCount = 
+                54. - (
+                    state
+                    |> Game.getAllTabs 
+                    |> List.map MLTab.hiddenLength 
+                    |> List.sum
+                    |> float )
+                  
 
             //state  |> Game.getAllTabs  |> List.map (Tableau.getRun >> List.length >> string) |> (String.concat "," >> printfn "%s")
 
             //printfn "Suit: %f, dEmpty:%f, long:%f, r2L:%f, lenRuns:%f" suitCompletion  distanceToEmptyColumn  lengthOfLogestRun  runToLengthValue  lengthOfRuns 
-            suitCompletion + distanceToEmptyColumn + lengthOfLogestRun + runToLengthValue + lengthOfRuns |> float
+            suitCompletion + distanceToEmptyColumn + lengthOfLogestRun + runToLengthValue + lengthOfRuns + (hiddenCardCount * 5.)|> float
+
+
+    let getRewardWithHistory state history = 
+        if Set.contains state history then 
+            -1.
+        else 
+            getReward state
 
     let rec findMinmia state reward = 
-        state |> function 
-        | Won -> state
-        | Lost _ -> state
-        | Continue (game,moves) -> 
+        state |> GameResult.fold state state (fun game moves -> 
             let s' = 
                 if moves = [Stock] then 
                     GameMover.playMove Stock game
                 else 
                     moves
                     |> List.filter (fun x -> x <> Stock) 
+                    |> (filterMovesWithNoValue game) 
                     |> (filterLocalLoopMoves GameMover.playMove game)
                     |> moveOrdering game
                     |> List.map (fun a -> GameMover.playMove a game)
@@ -190,20 +270,23 @@ module GameOperations =
 
             let reward' = getReward s'
             if (reward' > reward ) then findMinmia s' reward'
-            else s'
+            else s' )
 
 
     let playToLocalMinima state = 
         findMinmia state (getReward state)
 
-    let playMoveToMinima game move = 
-      
-        let next = GameMover.playMove game move
-        match next with 
-        | Won -> next
-        | Lost _ -> next
-        | Continue (game, moves) -> 
-            findMinmia next (getReward next)
+    let playMoveToMinima m g = 
+        let next = GameMover.playMove m g
+        if g.Stock = [] then next 
+        else next |> GameResult.fold next next (fun _ _ -> findMinmia next (getReward next))
+
+    let cleanMoves history g moves = 
+        moves
+        |> filterLocalLoopMoves playMoveToMinima g 
+        |> filterMovesWithNoValue g
+        |> filterMovesToPlayedStates playMoveToMinima history g
+
 
 module App = 
     open Card

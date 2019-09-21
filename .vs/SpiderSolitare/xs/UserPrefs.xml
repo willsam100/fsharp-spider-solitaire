@@ -1,0 +1,33 @@
+﻿<Properties StartupConfiguration="{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}|Default">
+  <MonoDevelop.Ide.ItemProperties.SpiderSolitarTests PreferredExecutionTarget="MonoDevelop.Default" />
+  <MonoDevelop.Ide.Workbench ActiveDocument="SpiderSolitare/SpiderSolitare.fs">
+    <Files>
+      <File FileName="../2048/TwentyFortyEigth/Game.fs" Line="183" Column="20" />
+      <File FileName="SpiderSolitare/SpiderSolitare.fs" Line="28" Column="1" />
+      <File FileName="SpiderSolitare/Script.fsx" />
+      <File FileName="SpiderSolitare/SpiderSolver.fs" Line="23" Column="14" />
+    </Files>
+    <Pads>
+      <Pad Id="ProjectPad">
+        <State name="__root__">
+          <Node name="SpiderSolitare" expanded="True">
+            <Node name="SpiderSolitare" expanded="True">
+              <Node name="SpiderSolitare.fs" selected="True" />
+            </Node>
+            <Node name="SpiderSolitare.Console" expanded="True" />
+          </Node>
+        </State>
+      </Pad>
+    </Pads>
+  </MonoDevelop.Ide.Workbench>
+  <MonoDevelop.Ide.ItemProperties.SpiderSolitare.Console PreferredExecutionTarget="MonoDevelop.Default" />
+  <MonoDevelop.Ide.DebuggingService.PinnedWatches />
+  <MonoDevelop.Ide.Workspace ActiveConfiguration="Debug" />
+  <MonoDevelop.Ide.DebuggingService.Breakpoints>
+    <BreakpointStore>
+      <Breakpoint file="/Users/sam.williams/projects/2048/TwentyFortyEigth/Game.fs" line="102" column="1" />
+    </BreakpointStore>
+  </MonoDevelop.Ide.DebuggingService.Breakpoints>
+  <MultiItemStartupConfigurations />
+  <MonoDevelop.Ide.ItemProperties.FsCheck.NUnit PreferredExecutionTarget="MonoDevelop.Default" />
+</Properties>

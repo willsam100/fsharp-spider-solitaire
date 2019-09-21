@@ -42,7 +42,7 @@ module List =
 [<AutoOpen>]
 module LogicUtils = 
 
-    let rand = new System.Random()
+    let rand = new Random()
 
     let swap (a: _[]) x y =
         let tmp = a.[x]
@@ -164,6 +164,7 @@ module Tableau =
 
     let length tab = List.length tab.Visible + List.length tab.Hidden
     let empty: Tableau = {Visible = List.empty; Hidden = List.empty}
+    let hasHiddenCards tab = List.length tab.Hidden > 0 
 
     let getVisible tab = 
         tab.Visible
@@ -267,6 +268,10 @@ module Tableau =
 
         {tab with Visible = removeCards tab.Visible cardsToMove}
 
+
+    let unHideCards tab = 
+        {tab with Visible = tab.Visible @ tab.Hidden; Hidden = []}
+
 type Column = 
     C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | C9 | C10
 
@@ -291,6 +296,10 @@ type SuitCompletedStatus =
     | Two
     | Three
     | Four
+    | Five
+    | Six
+    | Seven
+    | Eight
 
 [<StructuredFormatDisplay("{DebugString}")>]
 type Game = 
@@ -366,7 +375,11 @@ module Game =
             | One -> Two
             | Two -> Three
             | Three -> Four
-            | Four -> Four
+            | Four -> Five
+            | Five -> Six
+            | Six -> Seven
+            | Seven -> Eight
+            | Eight -> Eight
 
         match suit with 
             | Suit.H -> game.Hearts |> incrementSuit
@@ -406,18 +419,14 @@ module Game =
     
     let createGame rand deck = 
 
+        let createTableau count cards = Tableau.create (List.take count cards)
+
         let constructTableaus (game, cards) column = 
             match column with 
-            | C1 -> {game with One = Tableau.create (List.take 6 cards) }, cards |> List.skip 6
-            | C2 -> {game with Two = Tableau.create (List.take 6 cards) }, cards |> List.skip 6
-            | C3 -> {game with Three = Tableau.create (List.take 6 cards) }, cards |> List.skip 6
-            | C4 -> {game with Four = Tableau.create (List.take 6 cards) }, cards |> List.skip 6
-            | C5 -> {game with Five = Tableau.create (List.take 5 cards) }, cards |> List.skip 5
-            | C6 -> {game with Six = Tableau.create (List.take 5 cards) }, cards |> List.skip 5
-            | C7 -> {game with Seven = Tableau.create (List.take 5 cards) }, cards |> List.skip 5
-            | C8 -> {game with Eight = Tableau.create (List.take 5 cards) }, cards |> List.skip 5
-            | C9 -> {game with Nine = Tableau.create (List.take 5 cards) }, cards |> List.skip 5
-            | C10 -> {game with Ten = Tableau.create (List.take 5 cards) }, cards |> List.skip 5
+            | C1 | C2 | C3 | C4 -> 6
+            | C5 | C6 | C7 | C8 | C9 | C10 -> 5
+            |> (fun count -> 
+                game |> updateColumn column (createTableau count cards), cards |> List.skip count)
 
         let constructStock (game, cards) = 
             {game with Stock = cards}
@@ -439,6 +448,11 @@ module Game =
 
     let updateTableaus tabs game = 
         tabs |> List.fold (fun game (c, t) -> updateColumn c t game ) game
+
+
+    let tabMap f game = 
+        let tabs = game |> getAllTabsWithColumn |> List.map (fun (c,tab) -> c, f tab)
+        game |> updateTableaus tabs
 
     let findCardToPlay from card game = 
         let fromRun =  from |> getTabForColumn game |> Tableau.getRun
@@ -476,10 +490,10 @@ module Game =
     let isComplete game = 
         match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
         | Two, Two, Two, Two -> true
-        | Four, _, _, _ -> true
-        | _, Four, _, _ -> true
-        | _, _, Four, _ -> true
-        | _, _, _,Four -> true
+        | Eight, _, _, _ -> true
+        | _, Eight, _, _ -> true
+        | _, _, Eight, _ -> true
+        | _, _, _,Eight -> true
         | _ -> false   
 
     let toString game =
@@ -489,6 +503,18 @@ type MoveType =
     | Stock
     | Flip of Column
     | Move of Coords
+
+module MoveType = 
+
+    let fold s f m = function 
+        | Stock -> s
+        | Flip c -> f c
+        | Move c -> m c
+
+    let foldMove a f = function 
+    | Stock -> a
+    | Flip _ -> a
+    | Move c -> f c
 
 type GameResult = 
     | Continue of (Game * MoveType list)
@@ -500,14 +526,28 @@ module GameResult =
     let lostOrContinue f game newGame = 
         match newGame with 
         | None -> Lost game
-        | Some game -> f game             
+        | Some game -> f game     
+
+    let fold lost won f = function 
+    | Lost _ -> lost 
+    | Won -> won
+    | Continue (g,m) -> f g m
+
+    let existsTrue = fold true true
+    let existsFalse = fold false false
+    let existsWinTrue = fold false true
+
+    let map f = function 
+    | Lost x -> Lost x
+    | Won -> Won
+    | Continue (g, m) -> f g m |> Continue 
+
+    let iter g f = fold () () f g
 
 module GameMover = 
     type CardComparison = 
         { Source : Card
           Target : Card }
-    
-    open Game
     
     let canPlayStock game = 
         let hasCardsToPlay = game.Stock |> Seq.length > 0
@@ -525,14 +565,18 @@ module GameMover =
     let getValidMovesForCard fromColumn card game = 
         let canAddCard = Tableau.canAddCard Tableau.canAddCardToTab
 
+        let getCard a = a, Game.getTabForColumn game a
+
+        let canAddCard (x,y) = x, canAddCard card y
+
         Coord.allColumns 
-        
         |> List.filter (fun c -> c <> fromColumn)
-        |> List.map (fun a -> a, Game.getTabForColumn game a)
-        |> List.map (fun (x,y) -> x, canAddCard card y)
+        |> List.map (getCard >> canAddCard)
+        // |> List.map (fun a -> a, Game.getTabForColumn game a)
+        // |> List.map (fun (x,y) -> x, canAddCard card y)
         |> List.filter snd
-        |> List.map (fun (toColumn,_) -> {From = fromColumn; To = toColumn; Card = card})
-        |> List.map Move
+        |> List.map (fun (toColumn,_) -> {From = fromColumn; To = toColumn; Card = card} |> Move)
+        // |> List.map Move
 
 
     let validMoves game = 
@@ -581,3 +625,23 @@ module GameMover =
         | Stock -> Game.playStock game |> toGameResultOption
         | Flip column -> game |> Game.flip column |> toGameResult
         | Move coord -> game |> Game.playMove coord |> toGameResultOption
+
+
+    let unHideGame game = 
+        Game.tabMap (Tableau.unHideCards) game
+
+
+
+// To pixels on the screen 
+
+
+// matrix 
+// rows and a set of columns, a type as well 
+// 3d matrix -> 
+
+
+
+
+
+
+
