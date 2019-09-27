@@ -1770,7 +1770,7 @@ module QlearningWithFeatues =
 
     let game () = 
         let rand = new System.Random()
-        (GameMover.startGame (Card.deck OneSuit) rand)
+        (GameMover.startGame (Card.deck Card.One) rand)
         |> GameResult.map (fun game moves-> game |> GameMover.unHideGame, moves)
 
     let playGame () =

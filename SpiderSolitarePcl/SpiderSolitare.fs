@@ -1,5 +1,6 @@
 ﻿namespace SpiderSolitare.Game
 open System
+open FSharp.Collections.ParallelSeq
 
 //module Tuple = 
     //let apply f g (x,y) = 
@@ -41,7 +42,7 @@ module List =
 [<AutoOpen>]
 module LogicUtils = 
 
-    let rand = Random()
+    let rand = new Random()
 
     let swap (a: _[]) x y =
         let tmp = a.[x]
@@ -60,19 +61,18 @@ module LogicUtils =
 
     //let isZero x = x = 0
     
-    let rec distribute e = 
-       function 
-       | [] -> [ [ e ] ]
-       | x :: xs' as xs -> 
-           (e :: xs) :: [ for xs in distribute e xs' -> x :: xs ]
+    //let rec distribute e = 
+    //    function 
+    //    | [] -> [ [ e ] ]
+    //    | x :: xs' as xs -> 
+    //        (e :: xs) :: [ for xs in distribute e xs' -> x :: xs ]
     
-    let rec permute = 
-        function 
-        | [] -> [ [] ]
-        | e :: xs -> List.collect (distribute e) (permute xs)
+    //let rec permute = 
+        //function 
+        //| [] -> [ [] ]
+        //| e :: xs -> List.collect (distribute e) (permute xs)
 
 type Suit = H | D | S | C
-// type Suit = S = 0 | C = 1 | H = 2 | D= 3
 
 [<StructuredFormatDisplay("{DebugString}")>]
 type Card = 
@@ -93,18 +93,7 @@ type Card =
         member x.DebugString = x.ToString()
 
 
-type Difficulty = OneSuit | TwoSuit | FourSuit
-
-[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
-module CardModule = 
-
-    let parseSuit s = 
-        match s  with 
-        | "H" -> H
-        | "D" -> D
-        | "S" -> S
-        | "C" -> C
-        | x -> failwithf "Invalid suit value: %s" x
+module Card = 
 
     let private getDetails card = 
         let (Card (n, s)) = card
@@ -117,14 +106,16 @@ module CardModule =
         match n with 
         | n when n <= 13 && n >= 1 -> 
             Card (n, s) |> Some
-        | _ -> None    
+        | _ -> None
+
+    type Difficulty = One | Two | Four
 
     let deck numberOfSuits = 
         let suits = 
             match numberOfSuits with 
-            | OneSuit -> [S; S; S; S]
-            | TwoSuit -> [H; S; H; S]
-            | FourSuit -> [ H; D; S; C ]
+            | One -> [S; S; S; S]
+            | Two -> [H; S; H; S]
+            | Four -> [ H; D; S; C ]
 
         let numbers = [ 1..13 ]
         seq { 
@@ -148,14 +139,14 @@ type Tableau = {
 }
 with 
     member x.AsString sep hiddenCards = 
-        let visible = x.Visible |> List.map CardModule.printCard
+        let visible = x.Visible |> List.map Card.printCard
         let hidden = x.Hidden |> List.map hiddenCards
            
         (visible @ sep @ hidden)
         |> List.map (sprintf "%-5s")
         |> String.concat ""
 
-    override x.ToString() = x.AsString ["|*>"] CardModule.printCard
+    override x.ToString() = x.AsString ["|*>"] Card.printCard
     member x.DebugString = x.ToString()
     member x.GameString() = x.AsString [] (fun _ -> "*")
 
@@ -185,11 +176,11 @@ module Tableau =
             {Visible = [x]; Hidden = xs}
 
     let canAddCardToTab bottomCard topCard = 
-        CardModule.getValue bottomCard = CardModule.getValue topCard + 1
+        Card.getValue bottomCard = Card.getValue topCard + 1
 
-    let isSameSuit (xs: Card list) = 
+    let isSameSuit xs = 
         xs 
-         |> List.map (CardModule.getSuit) |> List.distinct |> List.length = 1
+         |> List.map (Card.getSuit) |> List.distinct |> List.length = 1
 
     let isAscendingInValue xs = 
         let rec folder expectedValue values = 
@@ -202,7 +193,7 @@ module Tableau =
                 else 
                     false
             
-        xs |> List.map (CardModule.getValue) |> folder None 
+        xs |> List.map (Card.getValue) |> folder None 
 
     let validate rules run = 
         rules 
@@ -299,20 +290,6 @@ type Coords =
 module Coord = 
     let allColumns = [ C1; C2; C3; C4; C5; C6; C7; C8; C9; C10 ]
 
-    let parseColumn c = 
-        match c with 
-        | 1 -> C1 
-        | 2 -> C2 
-        | 3 -> C3 
-        | 4 -> C4 
-        | 5 -> C5 
-        | 6 -> C6 
-        | 7 -> C7 
-        | 8 -> C8 
-        | 9 -> C9 
-        | 10 -> C10 
-        | x -> failwithf "Invalid card column: %d" x
-
 type SuitCompletedStatus = 
     | Zero
     | One
@@ -372,7 +349,7 @@ module Game =
 
         match Tableau.length result = (List.length xs + Tableau.length tab) with 
         | true -> result, None
-        | false -> result, xs |> List.head |> CardModule.getSuit |> Some 
+        | false -> result, xs |> List.head |> Card.getSuit |> Some 
 
     let emptyGame = 
         { Stock = List.empty
@@ -589,13 +566,17 @@ module GameMover =
         let canAddCard = Tableau.canAddCard Tableau.canAddCardToTab
 
         let getCard a = a, Game.getTabForColumn game a
+
         let canAddCard (x,y) = x, canAddCard card y
 
         Coord.allColumns 
         |> List.filter (fun c -> c <> fromColumn)
         |> List.map (getCard >> canAddCard)
+        // |> List.map (fun a -> a, Game.getTabForColumn game a)
+        // |> List.map (fun (x,y) -> x, canAddCard card y)
         |> List.filter snd
         |> List.map (fun (toColumn,_) -> {From = fromColumn; To = toColumn; Card = card} |> Move)
+        // |> List.map Move
 
 
     let validMoves game = 
@@ -635,15 +616,6 @@ module GameMover =
     let startGame deck rand = 
         Game.createGame rand deck |> lostOrContine
 
-    let createValidGame difficulty rand = 
-        let rec loop () = 
-            match startGame difficulty rand with 
-            | Continue (g,m) -> g
-            | _ -> loop ()
-        loop()
-
-
-
     let playMove move game = 
         let toGameResult = isComplete lostOrContine
         let toGameResultOption = 
@@ -666,9 +638,6 @@ module GameMover =
 // matrix 
 // rows and a set of columns, a type as well 
 // 3d matrix -> 
-
-
-
 
 
 

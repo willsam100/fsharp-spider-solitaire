@@ -77,7 +77,7 @@ module GameOperations =
                 |> Game.getAllTabsWithColumn
                 |> List.filter (fun (c,tab) -> Tableau.hasHiddenCards tab |> not)
                 |> List.filter (fun (c,tab) -> tab |> Tableau.getRun |> List.length = (tab |> Tableau.getVisible |> List.length))
-                |> List.filter (fun (c,tab) -> tab |> Tableau.getRun |> List.exists (fun card -> CardModule.getValue card = 13))
+                |> List.filter (fun (c,tab) -> tab |> Tableau.getRun |> List.exists (fun card -> Card.getValue card = 13))
                 |> List.map fst
 
             moves 
@@ -85,7 +85,7 @@ module GameOperations =
                 match x with 
                 | Stock -> true
                 | Flip _ -> true 
-                | Move x -> ((columnOfKing |> List.contains x.From) && (CardModule.getValue  x.Card) = 13) |> not)
+                | Move x -> ((columnOfKing |> List.contains x.From) && (Card.getValue  x.Card) = 13) |> not)
 
         let moves = 
             let oneCardColumns =
@@ -289,7 +289,7 @@ module GameOperations =
 
 
 module App = 
-    open CardModule
+    open Card
     open Game
     open System
 
@@ -361,7 +361,7 @@ module App =
                             return! loop gameResult
                 }
 
-            loop (GameMover.startGame (CardModule.deck OneSuit) rand))
+            loop (GameMover.startGame (Card.deck One) rand))
     
     let start (gameAgent: MailboxProcessor<AppMove>) = 
         gameAgent.PostAndReply GetGame |> printGameResult |> printfn "%s"
