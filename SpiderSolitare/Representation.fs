@@ -4,6 +4,7 @@ open System
 open SpiderSolitare.Game
 open Microsoft.ML
 open System.IO
+open System.Collections.Generic
 
 // module Spider = 
 //     type Card = S = 0 | C = 1 | H = 2 | D= 3
@@ -33,8 +34,9 @@ type ActionEncoder() =
             let columns = row.Split(',')
             let card = columns.[0]
             let values = columns.[1]
-            card, values.ToCharArray() |> Array.map (string >> float32) )
+            card, values |> Seq.map (string >> Int16.Parse) |> Seq.toArray)
         |> Map.ofArray 
+        
 
     let encodingToMove =
         moveToEncoding 
@@ -44,7 +46,6 @@ type ActionEncoder() =
         |> Map.ofList
 
     let encodeMove move = 
-        printfn "Encoding move: %A" move
 
         let getColumn c = 
             match c with 
@@ -75,15 +76,11 @@ type ActionEncoder() =
             let toColumn = getColumn card.To
             let fromColumn = getColumn card.From
             let stringRep = sprintf "%s%d-%d-%d" suit value toColumn fromColumn
-            printfn "%s" stringRep
             moveToEncoding |> Map.find stringRep
 
-    let decodeMove (encodedMove: float32 []) = 
+    let decodeMove (encodedMove: string) = 
 
-        let s = encodedMove |> Array.map string |> String.Concat
-        let moveString = 
-            encodingToMove 
-            |> Map.find s
+        let moveString = encodingToMove |> Map.find encodedMove
 
         match moveString with 
         | "stock" -> Stock
@@ -162,14 +159,14 @@ type CardEncoder() =
     let cardToEncode = 
         printfn "Reading card encoding..."
         let data = File.ReadAllLines "/Users/sam.williams/Desktop/onehotCard.csv"
-        
+
         data 
         |> Array.map (fun (row: string) -> 
 
             let columns = row.Split ','
             let card = columns.[0]
             let values = columns.[1]
-            card, values |> Seq.map float32 |> Seq.toList) 
+            card, values |> Seq.map (string >> Int16.Parse) |> Seq.toList) 
         |> Map.ofArray 
 
     let encodingToCard =
@@ -192,7 +189,13 @@ type CardEncoder() =
         cardToEncode |> Map.find (sprintf "%s%d" suit value) 
 
     let decodeCard card = 
-        let cardString = encodingToCard |> Map.find card
+        
+        let cardString = 
+            try encodingToCard |> Map.find card
+            with 
+            | :? KeyNotFoundException as e -> 
+                printfn "%A" card
+                raise e
        
         match cardString with 
         | "-" -> None
@@ -208,28 +211,36 @@ type CardEncoder() =
     member __.DecodeCard card = decodeCard card
 
 let encodeGame (cardEncoder: CardEncoder) (game: Game) =
-    let encodeTableau tab = 
-        let tab = (tab.Visible |> List.toArray |> Array.map (cardEncoder.Encode)) //@ (tab.Hidden |> List.map (cardEncoder.Encode))
-        let totalTableauSize = Array.replicate ((52 * 2) - tab.Length) cardEncoder.EmptyCard
-        Array.append tab totalTableauSize
 
-    (game |> Game.getAllTabs |> List.toArray |> Array.collect encodeTableau) |> List.concat |> List.toArray
-    //  @ (game.Stock |> List.map cardEncoder.Encode) 
+    let encodeTableau tab = 
+        match tab.Visible with 
+        | [] -> Array.replicate 34 cardEncoder.EmptyCard
+        | _ -> 
+            let tab = (tab.Visible |> List.toArray |> Array.map (cardEncoder.Encode)) //@ (tab.Hidden |> List.map (cardEncoder.Encode))
+            let totalTableauSize = Array.replicate (34 - tab.Length) cardEncoder.EmptyCard
+            Array.append tab totalTableauSize
+
+    let stockEncoded = 
+        let total = 50
+        let encoded = game.Stock |> List.map cardEncoder.Encode
+        encoded @ (List.replicate (total - encoded.Length) cardEncoder.EmptyCard)
+        |> List.concat
+
+    ((game |> Game.getAllTabs |> List.toArray |> Array.collect encodeTableau) |> List.concat) @ stockEncoded 
 
 let encodeKeyGame (cardEncoder: CardEncoderKeyed) (game: Game) =
     let encodeTableau tab = 
         let tab = (tab.Visible |> List.map (cardEncoder.Encode)) //@ (tab.Hidden |> List.map (cardEncoder.Encode))
-        let totalTableauSize = List.replicate ((52 * 2) - tab.Length) cardEncoder.EmptyCard
+        let totalTableauSize = List.replicate (34 - tab.Length) cardEncoder.EmptyCard
         tab @ totalTableauSize // pad to be array of max possible length for a tableau
 
-    (game |> Game.getAllTabs |> List.collect encodeTableau) |> List.map float32 |> List.toArray
-    //  @ (game.Stock |> List.map cardEncoder.Encode) 
+    (game |> Game.getAllTabs |> List.collect encodeTableau) // @ (game.Stock |> List.map cardEncoder.Encode) |> List.map int32
 
-let decodeGame (cardEncoder:CardEncoderKeyed) (game: int32 list) = 
+let decodeKeyedGame (cardEncoder:CardEncoderKeyed) (game: int32 list) = 
 
     let allCards = 
         game 
-        |> List.chunkBySize (52 * 2)
+        |> List.chunkBySize (34)
         |> List.map (fun xs -> xs |> List.choose cardEncoder.DecodeCard)
         |> List.mapi (fun i xs -> 
             let column = 
@@ -239,85 +250,49 @@ let decodeGame (cardEncoder:CardEncoderKeyed) (game: int32 list) =
                     Coord.parseColumn (i + 1) |> Some
             column, xs)
 
-    let stock = allCards |> List.filter (fun (x,y) -> x = None) |> List.collect snd
+    // let stock = allCards |> List.filter (fun (x,y) -> x = None) |> List.collect snd
     let tabs = 
         allCards 
         |> List.choose (fun (x,y) -> x |> Option.map (fun z -> z,y))
         |> List.map (fun (c,t) -> c, {Visible = t; Hidden = []})
 
+    Game.updateTableaus tabs Game.emptyGame 
+    // let game = 
+    // {game with Stock = stock}
+
+
+let decodeGame (cardEncoder:CardEncoder) (game: string) = 
+
+    let maxTabSize = (34)
+    // let maxTabSize = (1)
+    let cardCount = 14
+
+    let allCards = 
+        game
+        |> Seq.map (string >> Int16.Parse)
+        |> Seq.toArray
+        |> Array.chunkBySize cardCount
+        |> Array.map (Array.toList >> cardEncoder.DecodeCard)
+        |> Array.chunkBySize maxTabSize
+        |> Array.map (Array.choose id)
+        |> Array.mapi (fun i xs -> 
+            let column = 
+                if i + 1 > 10 then 
+                    None
+                else 
+                    Coord.parseColumn (i + 1) |> Some
+            column, xs)
+
+    let stock = allCards |> Array.filter (fun (x,y) -> x = None) |> Array.collect snd |> Array.toList
+    let tabs = 
+        allCards 
+        |> Array.choose (fun (x,y) -> x |> Option.map (fun z -> z,y))
+        |> Array.map (fun (c,t) -> c, {Visible = t |> Array.toList; Hidden = []})
+        |> Array.toList
+
     let game = Game.updateTableaus tabs Game.emptyGame 
     {game with Stock = stock}
 
 
-// let test int = 
-//     predictionEngineReverse.Predict (TransformedData(CardEncoded = int))
+// CardModule.create 10 S |> Option.get; CardModule.create 9 S |> Option.get] |> List.map (fun x -> ce.Encode x) |> List.concat |> List.map string |> String.Concat
 
-// let cardValue = [2 .. 10] @ [11; 12; 13; 14] 
-// let xAxis = [0 .. 9] |> List.mapi (fun i x -> i,x) |> Set.ofList
-
-// type Tab = Tab of int
-// type Rank = Rank of int
-
-// let readRank (Rank i) = 
-//     match i + 2 with // Rank begins at 0 offset
-//     | 11 -> "J"
-//     | 12 -> "Q"
-//     | 13 -> "K"
-//     | 14 -> "A"
-//     | x when x < 15 && x >= 2 -> string x
-//     | x  -> failwithf "Invalid card number: %d" x
-
-// // let rankToInt r = 
-// //     match r with 
-// //     | "J" -> 11
-// //     | "Q" -> 12
-// //     | "K" -> 13
-// //     | "A" -> 14
-// //     | "2" -> 2 
-// //     | "2" ->
-// //     | "2" ->
-// //     | "2" ->
-// //     | "2" ->
-// //     | "2" ->
-// //     | "2" ->
-// //     | "2" ->
-    
-// let readTabRank (t, r) = (t, readRank r)
-
-// let getPickUpCard int = 
-//     pickUpCard 
-//     |> List.chunkBySize cardValue.Length
-//     |> List.mapi (fun i x -> Tab i, x)
-//     |> List.skip (int / cardValue.Length)
-//     |> List.head
-//     |> (fun (i, x) -> 
-//         let r = x |> List.mapi (fun i _ -> Rank i) |> List.skip (int % cardValue.Length) |> List.head 
-//         i, r)
-
-// // last output should be (Tab 9, "A")
-// // [0 .. 129] |> List.iter (getPickUpCard >> readTabRank >> (printfn "%A"));;
-
-// let moveOneHot = List.replicate (cardValue.Length * xAxis * xAxis) 0   
-
-// let getMove int = 
-//     moveOneHot 
-//     |> List.chunkBySize (cardValue.Length * xAxis)
-//     |> List.mapi (fun i x -> 
-//         Tab i, x |> List.chunkBySize xAxis ) 
-//     |> List.skip (int / (cardValue.Length + xAxis))
-//     |> List.head
-//     |> (fun (i, x) -> 
-//         // printfn "%d %d %d %d %d %d %d" int (int / (cardValue.Length + xAxis)) (int / cardValue.Length) (int / xAxis) (int % cardValue.Length) (int % xAxis) ((int / (cardValue.Length + xAxis)) / xAxis)
-//         // printfn "%A" x
-//         let rank, tabs = 
-//             x 
-//             |> List.mapi (fun i x -> Rank i, x) 
-//             |> List.skip (int / xAxis) 
-//             |> List.head
-//         // printfn "%A %A" rank tabs        
-//         let targetTab = tabs |> List.mapi (fun i _ -> Tab i) |> List.skip (int % xAxis) |> List.head
-//         i, rank , targetTab)
-//         // let (rank, tab) = x |> List.skip (int % 14) |> List.head
-//         // let targetTab = tab |> List.skip (int % 10) |> List.head
-//         // i, rank, targetTab)
-// [0 .. 140] |> List.iter (getMove >> (printfn "%A"));;

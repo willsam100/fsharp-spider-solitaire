@@ -229,7 +229,7 @@ module Tableau =
         recurse tab
 
     let canFlipHiddenCard tab = 
-        List.isEmpty tab.Visible && List.isEmpty tab.Hidden |> not
+        List.isEmpty tab.Visible && (List.isEmpty tab.Hidden |> not)
 
     let flipHiddenCard tab = 
         match tab.Visible, tab.Hidden with 
@@ -510,14 +510,17 @@ module Game =
         let tab = coord |> getTabForColumn game 
         updateColumn coord (Tableau.flipHiddenCard tab) game
 
-    let isComplete game = 
-        match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
-        | Two, Two, Two, Two -> true
-        | Eight, _, _, _ -> true
-        | _, Eight, _, _ -> true
-        | _, _, Eight, _ -> true
-        | _, _, _,Eight -> true
-        | _ -> false   
+    let isComplete game =
+        match game |> getAllTabs |> List.sumBy Tableau.length with 
+        | 0 -> true
+        | _ -> 
+            match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
+            | Two, Two, Two, Two -> true
+            | Eight, _, _, _ -> true
+            | _, Eight, _, _ -> true
+            | _, _, Eight, _ -> true
+            | _, _, _,Eight -> true
+            | _ -> false   
 
     let toString game =
         game.ToString()
@@ -612,11 +615,9 @@ module GameMover =
         let flip = 
             game 
             |> Game.getAllTabsWithColumn
-            
-            |> List.map (fun x -> fst x, Tableau.canFlipHiddenCard <| snd x)
+            |> List.map (fun (c, tab) -> c, Tableau.canFlipHiddenCard tab )
             |> List.filter snd
-            |> List.map fst
-            |> List.map Flip
+            |> List.map (fst >> Flip)
 
         let stockMoves = game |> canPlayStock |> Option.toList
 
@@ -642,17 +643,18 @@ module GameMover =
             | _ -> loop ()
         loop()
 
-
-
     let playMove move game = 
         let toGameResult = isComplete lostOrContine
         let toGameResultOption = 
             GameResult.lostOrContinue (isComplete lostOrContine) game
 
-        match move with 
-        | Stock -> Game.playStock game |> toGameResultOption
-        | Flip column -> game |> Game.flip column |> toGameResult
-        | Move coord -> game |> Game.playMove coord |> toGameResultOption
+        match validMoves game |> List.contains move with 
+        | false -> Lost game
+        | true -> 
+            match move with 
+            | Stock -> Game.playStock game |> toGameResultOption
+            | Flip column -> game |> Game.flip column |> toGameResult
+            | Move coord -> game |> Game.playMove coord |> toGameResultOption
 
 
     let unHideGame game = 
