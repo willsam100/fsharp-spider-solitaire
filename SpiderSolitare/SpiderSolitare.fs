@@ -1,4 +1,4 @@
-﻿namespace SpiderSolitare.Game
+namespace SpiderSolitare.Game
 open System
 
 //module Tuple = 
@@ -215,11 +215,11 @@ module Tableau =
             List.length xs = 13
         run |> validate [isFullLength; isSameSuit; isAscendingInValue;]
 
-    let dropLastCard run = 
-        (List.take (List.length run - 1)) run
+    let dropLastCard (run: List<Card>): List<Card> = 
+        run |> List.take (List.length run - 1) //|> fst
 
     let validateRun tab = 
-        let rec recurse run =
+        let rec recurse run: List<Card> =
             if List.length run > 13 then 
                 run |> dropLastCard |> recurse
             else 
@@ -285,6 +285,7 @@ type Column =
     C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | C9 | C10
 
 [<StructuredFormatDisplay("{DebugString}")>]
+[<CLIMutable>]
 type Coords = 
     { From : Column
       To : Column
@@ -498,7 +499,7 @@ module Game =
         | [] -> None
         | xs when List.length xs < 10 -> None
         | xs -> 
-            let stock = game.Stock |> List.take 10
+            let stock = game.Stock |> List.take 10 //|> fst
             let game = {game with Stock = List.skip 10 game.Stock }
 
             List.map2 (fun card (c, tab) -> 
@@ -514,12 +515,16 @@ module Game =
         match game |> getAllTabs |> List.sumBy Tableau.length with 
         | 0 -> true
         | _ -> 
-            match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
-            | Two, Two, Two, Two -> true
-            | Eight, _, _, _ -> true
-            | _, Eight, _, _ -> true
-            | _, _, Eight, _ -> true
-            | _, _, _,Eight -> true
+            // match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
+            // | Two, Two, Two, Two -> true
+            // | Eight, _, _, _ -> true
+            // | _, Eight, _, _ -> true
+            // | _, _, Eight, _ -> true
+            // | _, _, _,Eight -> true
+            // | _ -> false   
+
+            match game.Spades with 
+            | One -> true
             | _ -> false   
 
     let toString game =
@@ -620,7 +625,6 @@ module GameMover =
             |> List.map (fst >> Flip)
 
         let stockMoves = game |> canPlayStock |> Option.toList
-
         flip @ cardMoves @ stockMoves
 
     let isComplete f game = 

@@ -27,7 +27,7 @@ type ActionEncoder() =
 
     let moveToEncoding = 
         printfn "Reading encoding..."
-        let data = File.ReadAllLines "/Users/sam.williams/Desktop/onehotAction.csv"
+        let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotAction.csv"
         
         data 
         |> Array.map (fun row -> 
@@ -79,7 +79,6 @@ type ActionEncoder() =
             moveToEncoding |> Map.find stringRep
 
     let decodeMove (encodedMove: string) = 
-
         let moveString = encodingToMove |> Map.find encodedMove
 
         match moveString with 
@@ -108,7 +107,7 @@ type CardEncoderKeyed() =
 
     let cardToEncode = 
         printfn "Reading card encoding..."
-        let data = File.ReadAllLines "/Users/sam.williams/Desktop/onehotCardKey.csv"
+        let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotCardKey.csv"
         
         data 
         |> Array.map (fun (row: string) -> 
@@ -158,7 +157,7 @@ type CardEncoder() =
 
     let cardToEncode = 
         printfn "Reading card encoding..."
-        let data = File.ReadAllLines "/Users/sam.williams/Desktop/onehotCard.csv"
+        let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotCard.csv"
 
         data 
         |> Array.map (fun (row: string) -> 
@@ -234,7 +233,12 @@ let encodeKeyGame (cardEncoder: CardEncoderKeyed) (game: Game) =
         let totalTableauSize = List.replicate (34 - tab.Length) cardEncoder.EmptyCard
         tab @ totalTableauSize // pad to be array of max possible length for a tableau
 
-    (game |> Game.getAllTabs |> List.collect encodeTableau) // @ (game.Stock |> List.map cardEncoder.Encode) |> List.map int32
+    let stock = 
+        let stock = game.Stock |> List.map (cardEncoder.Encode >> int32)
+        let emptyStock = List.replicate (50 - game.Stock.Length) cardEncoder.EmptyCard
+        emptyStock @ stock // Put the empty stock first, so that the data does not change order as it is used. 
+
+    (game |> Game.getAllTabs |> List.collect encodeTableau) @ stock
 
 let decodeKeyedGame (cardEncoder:CardEncoderKeyed) (game: int32 list) = 
 
@@ -250,15 +254,15 @@ let decodeKeyedGame (cardEncoder:CardEncoderKeyed) (game: int32 list) =
                     Coord.parseColumn (i + 1) |> Some
             column, xs)
 
-    // let stock = allCards |> List.filter (fun (x,y) -> x = None) |> List.collect snd
+    let stock = allCards |> List.filter (fun (x,y) -> x = None) |> List.collect snd
     let tabs = 
         allCards 
         |> List.choose (fun (x,y) -> x |> Option.map (fun z -> z,y))
         |> List.map (fun (c,t) -> c, {Visible = t; Hidden = []})
 
-    Game.updateTableaus tabs Game.emptyGame 
-    // let game = 
-    // {game with Stock = stock}
+    let game = 
+        Game.updateTableaus tabs Game.emptyGame 
+    {game with Stock = stock}
 
 
 let decodeGame (cardEncoder:CardEncoder) (game: string) = 
@@ -266,7 +270,7 @@ let decodeGame (cardEncoder:CardEncoder) (game: string) =
     let maxTabSize = (34)
     // let maxTabSize = (1)
     let cardCount = 14
-
+ 
     let allCards = 
         game
         |> Seq.map (string >> Int16.Parse)
