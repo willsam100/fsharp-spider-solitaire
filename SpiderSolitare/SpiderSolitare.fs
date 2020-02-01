@@ -525,7 +525,7 @@ module Game =
 
             match game.Spades with 
             | One -> true
-            | _ -> false   
+            | _ -> false
 
     let toString game =
         game.ToString()
@@ -550,7 +550,7 @@ module MoveType =
 type GameResult = 
     | Continue of (Game * MoveType list)
     | Lost of Game
-    | Won
+    | Won of Game
 
 module GameResult = 
 
@@ -559,21 +559,21 @@ module GameResult =
         | None -> Lost game
         | Some game -> f game     
 
-    let fold lost won f = function 
-    | Lost _ -> lost 
-    | Won -> won
-    | Continue (g,m) -> f g m
+    // let fold lost won f = function 
+    // | Lost _ -> lost 
+    // | Won -> won
+    // | Continue (g,m) -> f g m
 
-    let existsTrue = fold true true
-    let existsFalse = fold false false
-    let existsWinTrue = fold false true
+    // let existsTrue = fold true true
+    // let existsFalse = fold false false
+    // let existsWinTrue = fold false true
 
-    let map f = function 
-    | Lost x -> Lost x
-    | Won -> Won
-    | Continue (g, m) -> f g m |> Continue 
+    // let map f = function 
+    // | Lost x -> Lost x
+    // | Won -> Won
+    // | Continue (g, m) -> f g m |> Continue 
 
-    let iter g f = fold () () f g
+    // let iter g f = fold () () f g
 
 module GameMover = 
     type CardComparison = 
@@ -648,17 +648,29 @@ module GameMover =
         loop()
 
     let playMove move game = 
-        let toGameResult = isComplete lostOrContine
-        let toGameResultOption = 
-            GameResult.lostOrContinue (isComplete lostOrContine) game
+        // let toGameResult = isComplete lostOrContine
+        // let toGameResult = isComplete (fun g -> Continue (g, []))
+        // let toGameResultOption = 
+        //     // GameResult.lostOrContinue (isComplete lostOrContine) game
+        //     GameResult.lostOrContinue (isComplete (fun g -> Continue (g, []))) game
 
         match validMoves game |> List.contains move with 
         | false -> Lost game
         | true -> 
-            match move with 
-            | Stock -> Game.playStock game |> toGameResultOption
-            | Flip column -> game |> Game.flip column |> toGameResult
-            | Move coord -> game |> Game.playMove coord |> toGameResultOption
+            let gameOption = 
+                match move with 
+                | Stock -> Game.playStock game //|> toGameResultOption
+                | Flip column -> game |> Game.flip column |> Some //|> toGameResult
+                | Move coord -> game |> Game.playMove coord //|> toGameResultOption
+
+            gameOption 
+            |> Option.map (fun game -> 
+                match Game.isComplete game with 
+                | true -> Won game
+                | false -> Continue (game, []) )
+            |> Option.defaultValue (Lost game)
+
+
 
 
     let unHideGame game = 

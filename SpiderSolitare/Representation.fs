@@ -107,7 +107,8 @@ type CardEncoderKeyed() =
 
     let cardToEncode = 
         printfn "Reading card encoding..."
-        let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotCardKey.csv"
+        // let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotCardKey.csv"
+        let data = File.ReadAllLines "/Users/willsam100/Desktop/onehotCardKey.csv"
         
         data 
         |> Array.map (fun (row: string) -> 
@@ -230,7 +231,7 @@ let encodeGame (cardEncoder: CardEncoder) (game: Game) =
 let encodeKeyGame (cardEncoder: CardEncoderKeyed) (game: Game) =
     let encodeTableau tab = 
         let tab = (tab.Visible |> List.map (cardEncoder.Encode)) //@ (tab.Hidden |> List.map (cardEncoder.Encode))
-        let totalTableauSize = List.replicate (34 - tab.Length) cardEncoder.EmptyCard
+        let totalTableauSize = List.replicate (96 - tab.Length) cardEncoder.EmptyCard
         tab @ totalTableauSize // pad to be array of max possible length for a tableau
 
     let stock = 
@@ -244,7 +245,7 @@ let decodeKeyedGame (cardEncoder:CardEncoderKeyed) (game: int32 list) =
 
     let allCards = 
         game 
-        |> List.chunkBySize (34)
+        |> List.chunkBySize (96)
         |> List.map (fun xs -> xs |> List.choose cardEncoder.DecodeCard)
         |> List.mapi (fun i xs -> 
             let column = 

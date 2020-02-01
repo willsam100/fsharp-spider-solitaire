@@ -29,7 +29,7 @@ module GameOperations =
 
     let toGameAndMoves games = 
         let folder acc = function 
-            | m, Won -> acc
+            | m, Won _ -> acc
             | m, Lost _ -> acc
             | m, Continue x -> (m,x) :: acc
         Seq.fold folder [] games
@@ -39,7 +39,7 @@ module GameOperations =
                     ms   |> List.map (fun a -> a, playMove a s)
 
             let isWin = function
-                | Won -> true
+                | Won _ -> true
                 | _ -> false
                        
             let hasWonGame = 
@@ -175,7 +175,7 @@ module GameOperations =
 
     let getReward state = 
         match state with 
-        | Won -> 10000.
+        | Won _ -> 10000.
         | Lost _ -> -100.
         | Continue (state, moves) -> 
             let suitCompletion = 
@@ -254,38 +254,38 @@ module GameOperations =
         else 
             getReward state
 
-    let rec findMinmia state reward = 
-        state |> GameResult.fold state state (fun game moves -> 
-            let s' = 
-                if moves = [Stock] then 
-                    GameMover.playMove Stock game
-                else 
-                    moves
-                    |> List.filter (fun x -> x <> Stock) 
-                    |> (filterMovesWithNoValue game) 
-                    |> (filterLocalLoopMoves GameMover.playMove game)
-                    |> moveOrdering game
-                    |> List.map (fun a -> GameMover.playMove a game)
-                    |> List.maxBy (fun s -> getReward s)
+    // let rec findMinmia state reward = 
+    //     state |> GameResult.fold state state (fun game moves -> 
+    //         let s' = 
+    //             if moves = [Stock] then 
+    //                 GameMover.playMove Stock game
+    //             else 
+    //                 moves
+    //                 |> List.filter (fun x -> x <> Stock) 
+    //                 |> (filterMovesWithNoValue game) 
+    //                 |> (filterLocalLoopMoves GameMover.playMove game)
+    //                 |> moveOrdering game
+    //                 |> List.map (fun a -> GameMover.playMove a game)
+    //                 |> List.maxBy (fun s -> getReward s)
 
-            let reward' = getReward s'
-            if (reward' > reward ) then findMinmia s' reward'
-            else s' )
+    //         let reward' = getReward s'
+    //         if (reward' > reward ) then findMinmia s' reward'
+    //         else s' )
 
 
-    let playToLocalMinima state = 
-        findMinmia state (getReward state)
+    // let playToLocalMinima state = 
+    //     findMinmia state (getReward state)
 
-    let playMoveToMinima m g = 
-        let next = GameMover.playMove m g
-        if g.Stock = [] then next 
-        else next |> GameResult.fold next next (fun _ _ -> findMinmia next (getReward next))
+    // let playMoveToMinima m g = 
+    //     let next = GameMover.playMove m g
+    //     if g.Stock = [] then next 
+    //     else next |> GameResult.fold next next (fun _ _ -> findMinmia next (getReward next))
 
-    let cleanMoves history g moves = 
-        moves
-        |> filterLocalLoopMoves playMoveToMinima g 
-        |> filterMovesWithNoValue g
-        |> filterMovesToPlayedStates playMoveToMinima history g
+    // let cleanMoves history g moves = 
+    //     moves
+    //     |> filterLocalLoopMoves playMoveToMinima g 
+    //     |> filterMovesWithNoValue g
+    //     |> filterMovesToPlayedStates playMoveToMinima history g
 
 
 module App = 
@@ -322,7 +322,7 @@ module App =
 
     let printGameResult x = printfn "PRINTING GAME"; x |> function 
         | Lost game -> sprintf "LOST GAME\n" + (toString game)
-        | Won -> "GAME HAS BEEN WON"
+        | Won _ -> "GAME HAS BEEN WON"
         | Continue (game, moves) -> 
             let add s y = sprintf "%s\n%s" s y  
             toString game + "\n" + (moves |> printMoves |> List.reduce (add))
@@ -341,7 +341,7 @@ module App =
                     | GetMoves rc -> 
                         match gameResult with 
                         | Lost g -> rc.Reply []
-                        | Won -> rc.Reply []
+                        | Won _ -> rc.Reply []
                         | Continue (g, moves) -> moves |> List.indexed |> rc.Reply 
                         return! loop gameResult
                     | PlayMove(moveIndex, rc) -> 
