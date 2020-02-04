@@ -8,7 +8,7 @@ open System.IO
 open System.Collections.Generic
 // open StackExchange.Profiling
 // open ExtCore.Collections
-open FSharp.Collections.ParallelSeq
+// open FSharp.Collections.ParallelSeq
 
 
 

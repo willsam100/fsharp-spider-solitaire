@@ -25,6 +25,8 @@ module GameOperations =
     let getGameAndMove = function 
         | Continue (game, moves) -> 
             (game,moves)
+        | Lost g -> g,[]
+        | Won g -> g, []
 
 
     let toGameAndMoves games = 

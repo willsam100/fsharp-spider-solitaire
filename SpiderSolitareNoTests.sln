@@ -5,6 +5,8 @@ Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "SpiderSolitare", "SpiderSol
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console", "Console\Console.fsproj", "{AB363D5D-D6A1-4DA3-8A73-01AAC70D0251}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console.Tests", "Console.Tests\Console.Tests.fsproj", "{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -35,5 +37,9 @@ Global
 		{AB363D5D-D6A1-4DA3-8A73-01AAC70D0251}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AB363D5D-D6A1-4DA3-8A73-01AAC70D0251}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AB363D5D-D6A1-4DA3-8A73-01AAC70D0251}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

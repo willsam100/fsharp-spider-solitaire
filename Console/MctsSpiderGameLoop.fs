@@ -25,10 +25,10 @@ let playMove log randomness gameToMetrics (root: MutableNode) t n  =
         // It should be considered a loss since looping should be penalized. 
         None
     else 
-        let r = Random()
-        if r.NextDouble() < randomness || log then
-            root.Children |> List.maxBy (fun x -> getMetrics gameToMetrics x |> snd ) |> Some
-        else                 
+            let r = Random()
+        // if r.NextDouble() < randomness || log then
+        //     root.Children |> List.maxBy (fun x -> getMetrics gameToMetrics x |> snd ) |> Some
+        // else                 
             let move = r.Next(0, root.Children.Length)
             root.Children.[move] |> Some
 
@@ -40,8 +40,8 @@ let playGame log mctsSearch updateHistory iterationCount totalCount gameNumber =
     let game = Game.GameMover.createValidGame deck r |> Game.GameMover.unHideGame
     let root = MonteCarloTreeSearch.MutableNode(game, 1.0, 0., None, 1, None, None)
     let pastGames = Dictionary<_, _>()
-    let randomness = 0.6
-    let randomIncrement = 0.01
+    let randomness = 0.8
+    let randomIncrement = 0.00
     if not log then 
         printfn "Random moves will be played! Good move will be played %.2f%%" randomness
 
@@ -60,7 +60,7 @@ let playGame log mctsSearch updateHistory iterationCount totalCount gameNumber =
         // printfn ""
         // printfn "C:%d %A (%d)" iterationCount  s.Elapsed (s.ElapsedMilliseconds / 1000L)
         let movesMade = float (totalCount - count)
-        let r = Math.Max(0.9,randomness + (randomIncrement * movesMade))
+        let r = randomness // Math.Min(0.9,randomness + (randomIncrement * movesMade))
         match playMove log r gameToMetrics root t n with 
         | None -> 
             printfn "%A" game
@@ -71,7 +71,6 @@ let playGame log mctsSearch updateHistory iterationCount totalCount gameNumber =
         | Some nMove -> 
             // let pastGames = MonteCarloTreeSearch.getParents root
             nMove.Parent <- None
-            let gameResult = Game.GameMover.playMove nMove.Move.Value game
             match nMove.TerminalValue |> Option.map int |> Option.map (fun x -> x = 1) with 
             | None -> 
 

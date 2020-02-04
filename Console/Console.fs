@@ -1,6 +1,8 @@
 module Console
 open SpiderSolitare
 open System.Threading.Tasks
+open System.IO
+open System.Runtime
 open Persisance
 open Brain
 open SpiderSolitare.MonteCarloTreeSearch
@@ -8,7 +10,7 @@ open SpiderSolitare.Game
 open System.Diagnostics
 
 type ISaver = 
-    abstract member SaveGameMoves: bool ->  int -> (int * string * string) list -> unit
+    abstract member SaveGameMoves: bool ->  int -> (int * string * int) list -> unit
     abstract member Finish: unit -> unit
     abstract member Format: unit -> unit
 
@@ -16,18 +18,44 @@ type ISaver =
 [<EntryPoint>]
 let main argv =
 
+    let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw.csv"
+    let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
+
     match argv with 
-    | [| "format" |] ->  Script.run()
+    | [| "format-policy" |] -> Reformat.readAndFormatPolicy policyRaw
+    | [| "format-value" |] -> Reformat.readAndFormatValue valueRaw
+    | [| "format-all" |] ->  
+        Reformat.readAndFormatPolicy policyRaw
+        Reformat.readAndFormatValue valueRaw
+
+    | [| "format-legacy" |] ->  
+
+        GCSettings.LatencyMode <- GCLatencyMode.Batch
+        if File.Exists policyRaw then 
+            File.Delete (policyRaw)
+
+        if File.Exists valueRaw then 
+            File.Delete (valueRaw)
+
+        let s = Saver(policyRaw, valueRaw)
+    
+        "/Users/willsam100/Desktop/spider-game-with-failure.csv"
+        |> File.ReadAllLines
+        |> Array.mapi Reformat.sequenceDataLegacy
+        |> Array.groupBy (fun x -> x.GameNumber)
+        |> Array.iter (fun (gn, xs) -> s.SaveLegacyFormat gn xs )
+
+        s.Finish()
     | _ -> 
     
         let moveEncoder = Representation.ActionEncoder()
-        let mctsSearchIterationCount = 100
+        let mctsSearchIterationCount = 1000
         let moveCount = 100
         let loopCount = 10
 
-        let log = true
-        let gameNumbers = List.replicate 2000 [ 2;] |> List.concat
-        let gameNumbers = [202]
+        let log = false
+        let gameNumbers = List.replicate 1 [ 0 .. 16] |> List.concat
+        // let gameNumbers = [1]
 
         let saver = 
 
@@ -37,18 +65,18 @@ let main argv =
                     member this.Finish() = ()
                     member this.Format() = () }
             else 
-                let s = Saver "/Users/willsam100/Desktop/spider-game-with-failure.csv" 
+                let s = Saver(policyRaw, valueRaw)
                 { new ISaver with 
-                    member ths.SaveGameMoves isWin gameNumber  history = s.SaveGameMoves isWin gameNumber history
+                    member ths.SaveGameMoves isWin gameNumber history = s.SaveGameMoves isWin gameNumber history
                     member this.Finish() = s.Finish()
                     member this.Format() = s.Format() }
 
 
         let updateHistory game move history = 
             let gameAndBestMove = 
-                    (List.length history + 1) , 
+                    (List.length history + 1), 
                     (game |> Representation.encodeKeyGame MonteCarloTreeSearch.cardEncoder |> Seq.map string |> String.concat ","), 
-                    (moveEncoder.Encode move |> Array.map string |> String.concat ",")
+                    (moveEncoder.Encode move |> Reformat.encodeMove)
             gameAndBestMove :: history
 
         let rec printTree depth (node: MonteCarloTreeSearch.Node) = 
@@ -73,27 +101,32 @@ let main argv =
             let brainsMover = BrainsMover(port) :> IBransMover
             let search = MonteCarloTreeSearch.search log brainsMover
 
-            try 
-                range 
-                |> List.map (MctsSpiderGameLoop.playGame log search updateHistory mctsSearchIterationCount moveCount)
-                |> List.iter (function 
-                    | _, _, [] -> ()
-                    | isWin, gameNumber, history -> 
-                        history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
-
-            finally 
-                brain.Stop()
+            range 
+            |> List.map (MctsSpiderGameLoop.playGame log search updateHistory mctsSearchIterationCount moveCount)
+            |> List.map (function 
+                | _, _, [] -> false
+                | isWin, gameNumber, history -> 
+                    // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
+                    saver.SaveGameMoves isWin gameNumber history 
+                    brain.Stop()
+                    isWin)
+                
 
         let rec loop count = 
 
-            gameNumbers
-            |> List.splitInto 8
-            |> List.mapi (fun i x -> 5100 + i * 2, x)
-            |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
-            |> List.toArray    
-            |> Task.WhenAll    
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
+            let results = 
+                gameNumbers
+                |> List.splitInto 8
+                |> List.mapi (fun i x -> 5100 + i * 2, x)
+                |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
+                |> List.toArray    
+                |> Task.WhenAll    
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+                |> Array.collect List.toArray
+
+            let winningRate: float = (results |> Array.filter id |> Array.length |> float) / (List.length gameNumbers |> float)
+            printfn "WINING RATE: %.2f" winningRate
 
             saver.Finish()
             saver.Format()

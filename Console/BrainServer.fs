@@ -168,6 +168,15 @@ type BrainsMover(port) =
         | true, r -> r
         | false, _ -> 
             try 
+                // State is not shared accross threads. 
+                // This results in duplicate data.
+                // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
+                // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
+                // A full game does not have more than 500 moves, most of the time training is down to the first card deck
+                // which should be completed within 100 moves. 
+                if gamesValueNet.Count > 1000 then 
+                    gamesValueNet.Clear()
+
                 let encoded = MonteCarloTreeSearch.encodeGame game |> format
                 let r = continuation encoded
                 gamesPolicyNet.Add (game, r)
@@ -185,6 +194,16 @@ type BrainsMover(port) =
         | true, v -> v
         | false, _ -> 
             try 
+
+                // State is not shared accross threads. 
+                // This results in duplicate data.
+                // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
+                // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
+                // A full game does not have more than 500 moves, most of the time training is down to the first card deck
+                // which should be completed within 100 moves. 
+                if gamesValueNet.Count > 1000 then 
+                    gamesValueNet.Clear()
+
                 let encoded = MonteCarloTreeSearch.encodeGame game |> format
                 let v = continuation encoded
                 gamesValueNet.Add (game, v)
