@@ -7,9 +7,12 @@ open System.Net.Http
 open System
 open SpiderSolitare
 open Newtonsoft.Json
+open SpiderSolitare.MonteCarloTreeSearch
+open SpiderSolitare.Representation
 
 type Request = {
     Game: string
+    ValidMoves: string
 }
 
 type ResponsePolicy = {
@@ -21,8 +24,52 @@ type ResponseValue = {
     Value: float
 }
 
+type ResponseMoves = {
+    Moves: float list
+}
+
 let moveEncoder = Representation.ActionEncoder()
+let gameDecoder = CardEncoderKeyed()
 let allMoves = List.replicate 1171 0
+
+let timed name f = 
+    let s = Stopwatch()
+    s.Restart()
+    let x = f ()
+    printfn "Timed %s: %A" name s.Elapsed
+    x
+
+let mutliLabelMoves (g:string) decodeKeyedGame = 
+    g.Split "," 
+    |> Array.map Int32.Parse 
+    |> Array.toList 
+    |> decodeKeyedGame
+    |> GameMover.validMoves 
+    |> List.map (fun x -> x |> moveEncoder.Encode)
+    |> List.fold (fun acc x -> 
+        let t = Array.zip acc x 
+        t |> Array.map (fun (l,r) -> 
+            let one = int16 1 
+            if l = one || r = one then one else int16 0)
+    ) (Array.replicate 1171 (int16 0))
+
+    |> Array.map string 
+    |> String.concat ","
+
+let shortGame (g:string) = 
+    g.Split "," 
+    |> Array.take (96 * 10)
+    |> Array.chunkBySize 96
+    |> Array.collect (Array.truncate 24)
+    |> String.concat ","
+
+let shortGameAdjusted (g: string) = 
+    g.Split "," 
+    |> Array.take (96 * 10)
+    |> Array.chunkBySize 96
+    |> Array.map (Array.truncate 24)
+    |> Array.collect (Array.tail)
+    |> String.concat ","
 
 
 let format (game:string) = 
@@ -72,7 +119,6 @@ type BrainServerProcess(port) =
         Process.Start(startInfo)
 
     member this.StartServer() = 
-        printfn "Starting server: %d" port
 
         if isNull p |> not then 
             this.Stop()
@@ -89,7 +135,6 @@ type BrainServerProcess(port) =
             pKill.WaitForExit()
             p.Kill()
             p.WaitForExit()
-            printfn "Kill process: %d (%d)" port pid
             p <- null
             // Thread.Sleep 5000
 
@@ -98,6 +143,7 @@ type BrainsMover(port) =
     
     let gamesPolicyNet = new Dictionary<Game.Game, (MoveType * float) list>()
     let gamesValueNet = new Dictionary<Game.Game, float>()
+    let gamesMovesNet = new Dictionary<Game.Game, MoveType list>()
     let moves = new Dictionary<string, Game.MoveType>()
     let r = Random()
     let client = new HttpClient ()
@@ -174,16 +220,22 @@ type BrainsMover(port) =
                 // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
                 // A full game does not have more than 500 moves, most of the time training is down to the first card deck
                 // which should be completed within 100 moves. 
-                if gamesValueNet.Count > 1000 then 
-                    gamesValueNet.Clear()
+                // if gamesPolicyNet.Count > 1000 then 
+                //     gamesPolicyNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format
-                let r = continuation encoded
+                let g = MonteCarloTreeSearch.encodeGame game 
+                let encoded = sprintf "%s,%s" (shortGame g) (shortGameAdjusted g)
+
+                let validMoves = 
+                    mutliLabelMoves g (decodeKeyedGame gameDecoder)
+
+                let r = continuation (encoded, validMoves)
                 gamesPolicyNet.Add (game, r)
                 r
 
             with 
             | e -> 
+                printfn "Exception occured:"
                 printfn "%A" game
                 printfn "%A" <| MonteCarloTreeSearch.encodeGame game
                 printfn "%s" <| e.ToString()
@@ -201,48 +253,111 @@ type BrainsMover(port) =
                 // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
                 // A full game does not have more than 500 moves, most of the time training is down to the first card deck
                 // which should be completed within 100 moves. 
-                if gamesValueNet.Count > 1000 then 
-                    gamesValueNet.Clear()
+                // if gamesValueNet.Count > 10000 then 
+                //     gamesValueNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format
+                let g = MonteCarloTreeSearch.encodeGame game |> format
+                let encoded = sprintf "%s,%s" g (shortGameAdjusted g)
                 let v = continuation encoded
+
+
                 gamesValueNet.Add (game, v)
                 v
 
             with 
             | e -> 
+                printfn "Exception occured:"
                 printfn "%A" game
                 printfn "%A" <| MonteCarloTreeSearch.encodeGame game
                 printfn "%s" <| e.ToString()
                 raise e
 
+    let getMoves game continuation = 
+        match gamesMovesNet.TryGetValue game with 
+        | true, v -> v
+        | false, _ -> 
+            try 
+
+                // State is not shared accross threads. 
+                // This results in duplicate data.
+                // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
+                // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
+                // A full game does not have more than 500 moves, most of the time training is down to the first card deck
+                // which should be completed within 100 moves. 
+                // if gamesMovesNet.Count > 10000 then 
+                //     gamesMovesNet.Clear()
+
+                let encoded = MonteCarloTreeSearch.encodeGame game |> format
+                let v = continuation encoded
+                gamesMovesNet.Add (game, v)
+                v
+
+            with 
+            | e -> 
+                printfn "Exception occured:"
+                printfn "%A" game
+                printfn "%A" <| MonteCarloTreeSearch.encodeGame game
+                printfn "%s" <| e.ToString()
+                raise e                
+
     let getMove move = 
         match moves.TryGetValue move with 
         | true, m-> m
         | false, _ -> 
+
+            // if moves.Count > 10000 then 
+            //     moves.Clear()
+        
             let m = move |> Int32.Parse |> toOneHot |> moveEncoder.Decode
             moves.Add (move, m)
             m
 
-    interface MonteCarloTreeSearch.IBransMover with 
-        member this.GetBestMove(game:Game.Game) = 
-            getPolicy game
-                (fun encoded -> 
-                    let body = {Game = encoded} |> JsonConvert.SerializeObject
-                    let bestMoves = 
-                        post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponsePolicy>
 
-                    Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove x, y)
-                )
+
+    interface MonteCarloTreeSearch.IBransMover with 
+        member this.Flush() =
+            moves.Clear()
+            gamesPolicyNet.Clear()
+            gamesMovesNet.Clear()
+            gamesValueNet.Clear()
+
+
+        member this.GetBestMove(game:Game.Game) = 
+            timed "policy" <| fun () -> 
+                getPolicy game
+                    (fun (encoded, validMoves) -> 
+                        let body = {Game = encoded; ValidMoves = validMoves} |> JsonConvert.SerializeObject
+                        let bestMoves = 
+                            post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponsePolicy>
+
+                        Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove x, y)
+                    )
         
         member this.GetValue game = 
-            getValue game 
+            timed "value" <| fun () -> 
+                getValue game 
+                    (fun encoded -> 
+                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+                        let responseValue = 
+                            post port (sprintf "http://localhost:%d/value" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponseValue>
+                        responseValue.Value            
+                    )
+
+        member this.GetMoves game = 
+            getMoves game 
                 (fun encoded -> 
-                    let body = {Game = encoded} |> JsonConvert.SerializeObject
+                    let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
                     let responseValue = 
-                        post port (sprintf "http://localhost:%d/value" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponseValue>
-                    responseValue.Value            
-                )
+                        post port (sprintf "http://localhost:%d/moves" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponseMoves>
+
+                    printfn "%s" 
+                        (responseValue.Moves |> List.map (fun x -> sprintf "%.2f" x) |> String.concat ",")
+
+                    responseValue.Moves
+                    |> List.mapi (fun i x -> i,x )
+                    |> List.filter (fun (i,x) -> x > 0.5)
+                    |> List.map (fst >> toOneHot >>  moveEncoder.Decode)
+                ) 
 
                
 

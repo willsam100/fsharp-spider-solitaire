@@ -13,11 +13,11 @@ let playRandomMove move (node: MutableNode) =
     | Game.Continue (g,_s) -> 
         MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, None)
     | Game.Lost g -> 
-        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some 0.)
+        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some false)
     | Game.Won g -> 
-        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some 1.)
+        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some true)
 
-
+let r = Random()
 let playMove log randomness gameToMetrics (root: MutableNode) t n  = 
 
     if root.Children.IsEmpty then 
@@ -25,86 +25,63 @@ let playMove log randomness gameToMetrics (root: MutableNode) t n  =
         // It should be considered a loss since looping should be penalized. 
         None
     else 
-            let r = Random()
-        // if r.NextDouble() < randomness || log then
-        //     root.Children |> List.maxBy (fun x -> getMetrics gameToMetrics x |> snd ) |> Some
-        // else                 
+        let v = r.NextDouble()
+        if v < randomness then
+            if log then  printfn "Playing best move"
+            root.Children |> List.maxBy (fun x -> 
+                let t,n= getMetrics gameToMetrics x
+                n ) |> Some
+        else                 
             let move = r.Next(0, root.Children.Length)
+            if log then printfn "Playing random move. %d/%d" move (root.Children.Length)
             root.Children.[move] |> Some
 
-let playGame log mctsSearch updateHistory iterationCount totalCount gameNumber = 
+let playGame log randomMoveThreshold mctsSearch updateHistory iterationCount totalCount gameNumber = 
 
     let r = Random(gameNumber)
     let gameToMetrics = new Dictionary<_, _>()
     let deck = Game.CardModule.deck Game.OneSuit
     let game = Game.GameMover.createValidGame deck r |> Game.GameMover.unHideGame
-    let root = MonteCarloTreeSearch.MutableNode(game, 1.0, 0., None, 1, None, None)
+    let root = MutableNode(game, 1.0, 0., None, 1, None, None)
     let pastGames = Dictionary<_, _>()
-    let randomness = 0.8
-    let randomIncrement = 0.00
-    if not log then 
-        printfn "Random moves will be played! Good move will be played %.2f%%" randomness
-
     
-    pastGames.[root.GameHashCode] <- Set.empty
+    pastGames.[root.GameHashCode] <-Set.empty
     // let s = Stopwatch()
 
-    let rec loop history count root game = 
+    let rec loop history count root game =
         let (t,n) = getMetrics gameToMetrics root
-        // let iterationCount = mctsSearchIterationCount - progress count + (if n = -1. ||  t / (float n) <=  -1.00 then 10000 else 5)
-        // printfn "Iteration Count: %d - %d" iterationCount count
+        // printfn "GN:%d, pg:%d" gameNumber count
         
         // s.Restart()
         mctsSearch pastGames gameToMetrics iterationCount root
-        // s.Stop()
-        // printfn ""
-        // printfn "C:%d %A (%d)" iterationCount  s.Elapsed (s.ElapsedMilliseconds / 1000L)
+
         let movesMade = float (totalCount - count)
-        let r = randomness // Math.Min(0.9,randomness + (randomIncrement * movesMade))
+        let r = randomMoveThreshold
         match playMove log r gameToMetrics root t n with 
         | None -> 
-            printfn "%A" game
-            printfn "No more moves: %d" gameNumber
-            printfn "Moves played: %.0f" movesMade
-            false, gameNumber, history // TODO: keep reviing this
+            false, gameNumber, game, movesMade, history // TODO: keep reviing this
 
         | Some nMove -> 
-            // let pastGames = MonteCarloTreeSearch.getParents root
             nMove.Parent <- None
-            match nMove.TerminalValue |> Option.map int |> Option.map (fun x -> x = 1) with 
+            match nMove.TerminalValue with 
             | None -> 
-
                 if count <= 0 then 
-                    printfn "%A" nMove.Game
-                    printfn "Game Number: %d" gameNumber
-                    printfn "Moves played: %.0f" movesMade
-                    printfn "Lost: move count depleted:"
-                    false, gameNumber, history
-
-                else        
-                    if log then      
+                    let history = updateHistory game nMove.Move.Value history
+                    false, gameNumber, nMove.Game, movesMade, history
+                else    
+                    if log then 
                         printfn "%A" nMove.Game
-                        printfn "Moves played: %.0f" movesMade
-                    // printfn "Moves reminaing: %d" count
-                    // let pastGames = Set.add game' pastGames
-                    // let pastGames = Set.union pastGames (getGames nMove |> Set.ofList)
+                        printfn "Move: %A" nMove.Move
+  
                     loop (updateHistory game nMove.Move.Value history) (count - 1) nMove nMove.Game
 
             | Some didWin -> 
                 let game = nMove.Game
+                let history = updateHistory game nMove.Move.Value history
                 if didWin then
-                    let history = updateHistory game nMove.Move.Value history
-                    // perodicSaveAsync gameNumber 0 history root        
-                    printfn "%A" game
-                    printfn "Moves taken: %.0f" movesMade
-                    printfn "Game completed and saved %d" gameNumber
-                    true, gameNumber, history
+                    true, gameNumber, game, movesMade, history
                 else
-               
-                    printfn "%A" nMove.Game
-                    printfn "Lost: %d" gameNumber
-                    printfn "Moves played: %.0f" movesMade
-                    false, gameNumber, history
+                    false, gameNumber, nMove.Game, movesMade,  history
 
 
     loop [] totalCount root game 

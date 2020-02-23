@@ -21,13 +21,14 @@ type Policy = {
     GameNumber: int
     RowNumber: int
     MoveCount: int
+    ScoredGame: float
 }
 
 [<Struct>]
 type Value = {
     Game: string
     Reward: int
-    // MoveOrder: int
+    MoveOrder: int
     GameNumber: int
     RowNumber: int
 }
@@ -41,15 +42,6 @@ type LegacyFile = {
     GameNumber: int
     RowNumber: int
 }
-
-let encodeMove (m: int16[]) = 
-    let move = int16 1
-    m |> Array.findIndex (fun x -> x = move)
-
-let decodeMove int = 
-    let x = Array.replicate 1171 0
-    x.[int] <- 1
-    x
 
 let format (game:string) = 
     let game = game.Split ","
@@ -84,18 +76,24 @@ let sequenceDataPolicy rowNumber (x: string) =
     let moveOrder = Array.head row |> Int32.Parse
     let game = row |> Array.skip 1 |> Array.take (row.Length - 2) |> String.concat ","
     let move = row.[row.Length - 2] |> Int32.Parse |> decodeMove |> Array.map string  |> String.concat ","
-    let moveCount = row.[row.Length - 2] |> Int32.Parse
-    let gameNumber = Array.last row |> Int32.Parse
+    let gameNumber = row.[row.Length - 2] |> Int32.Parse
+    let moveCount = Array.last row |> Int32.Parse
 
     // format game, move, outcome, gameNumber, moveOrder
-    {
-        Game = format game
-        Move = move
-        MoveOrder = moveOrder
-        GameNumber = gameNumber
-        RowNumber = rowNumber
-        MoveCount = moveCount
-    } 
+    try 
+        {
+            Game = format game
+            Move = move
+            MoveOrder = moveOrder
+            GameNumber = gameNumber
+            RowNumber = rowNumber
+            MoveCount = moveCount
+            ScoredGame = 0.
+        } 
+    with 
+    | e -> 
+        printfn "RowNumber:%d" rowNumber
+        raise e    
 
 let sequenceDataValue rowNumber (x: string) = 
 
@@ -113,7 +111,7 @@ let sequenceDataValue rowNumber (x: string) =
         {
             Game = format game
             Reward = reward
-            // MoveOrder = moveOrder
+            MoveOrder = moveOrder
             GameNumber = gameNumber
             RowNumber = rowNumber
         }
@@ -186,12 +184,7 @@ let printMoves map =
     )
 
 
-let savePolicy map = 
-    let rows = 
-        map 
-        |> Map.toList 
-        |> List.collect (fun (m, gs) -> gs |> List.map (fun (g: string) -> 
-            sprintf "%s,%s" g m ) )
+let savePolicy (rows: string list) = 
     File.WriteAllLines ("/Users/willsam100/Desktop/spider-policy-net.csv", rows)
 
     // Delete the binary file as we have generated a new csv file with more data.
@@ -202,50 +195,96 @@ let saveValueNet data =
     let rows = data |> Array.map (fun (g, outcome) -> sprintf "%s,%d" g outcome )
     File.WriteAllLines ("/Users/willsam100/Desktop/spider-value-net.csv", rows)
 
+let saveValidMove data = 
+    let rows = data |> Array.map (fun (g, validMoves) -> sprintf "%s,%s" g validMoves )
+    File.WriteAllLines ("/Users/willsam100/Desktop/spider-moves-net.csv", rows)
+
+let saveValidRunCount data = 
+    let rows = data |> Array.map (fun (g, validMoves) -> sprintf "%s,%s" g validMoves )
+    File.WriteAllLines ("/Users/willsam100/Desktop/spider-run-net.csv", rows)
+
+    if File.Exists "/Users/willsam100/Desktop/spider-run-net.csv-binary.npy" then 
+        File.Delete "/Users/willsam100/Desktop/spider-run-net.csv-binary.npy"
+
 type ResultType = 
     | All
     | WonAndLost of winningRowNumbers: int array
 
 let filterDuplicateGamesStateRewards (data: Value[]) = 
 
-    let gameNumbersToWin = 
-        data 
-        |> Array.groupBy (fun stateAction -> stateAction.GameNumber)
-        |> Map.ofArray
-        |> Map.map (fun k v ->  
+    // let gameNumbersToWin = 
+    //     data 
+    //     |> Array.groupBy (fun stateAction -> stateAction.GameNumber)
+    //     |> Map.ofArray
+    //     |> Map.map (fun k v ->  
 
-            // let rec splitWhile acc games : Value list list = 
-            //     match games with 
-            //     | [] -> acc
-            //     | game::_ -> 
-            //         let (n: Value list) = games |> List.takeWhile (fun x -> x.Reward = game.Reward)
-            //         let tail = games |> List.skipWhile (fun x -> x.Reward = game.Reward)
-            //         splitWhile (n :: acc) tail
+    //         // let rec splitWhile acc games : Value list list = 
+    //         //     match games with 
+    //         //     | [] -> acc
+    //         //     | game::_ -> 
+    //         //         let (n: Value list) = games |> List.takeWhile (fun x -> x.Reward = game.Reward)
+    //         //         let tail = games |> List.skipWhile (fun x -> x.Reward = game.Reward)
+    //         //         splitWhile (n :: acc) tail
 
-            // let games = 
-            //     v
-            //     |> Array.sortBy (fun x -> x.RowNumber)
-            //     |> Array.toList
-            //     |> splitWhile []
+    //         // let games = 
+    //         //     v
+    //         //     |> Array.sortBy (fun x -> x.RowNumber)
+    //         //     |> Array.toList
+    //         //     |> splitWhile []
 
-            // if games.Length = 1 then 
-            //     if v |> Array.forall (fun x -> x.Reward = 1) then 
-            //         SingleWin
-            //     else Lost
-            // else         
+    //         // if games.Length = 1 then 
+    //         //     if v |> Array.forall (fun x -> x.Reward = 1) then 
+    //         //         SingleWin
+    //         //     else Lost
+    //         // else         
 
 
-            if v |> Array.exists (fun x -> x.Reward = 1) && v |> Array.exists (fun x -> x.Reward = 0) then 
+    //         if v |> Array.exists (fun x -> x.Reward = 1) && v |> Array.exists (fun x -> x.Reward = 0) then 
                 
-                v |> Array.filter (fun x -> x.Reward = 1) |> Array.map (fun x -> x.RowNumber)
-            else v |> Array.map (fun x -> x.RowNumber)  )
-        |> Map.toArray
-        |> Array.collect snd
-        |> Set.ofArray
+    //             v |> Array.filter (fun x -> x.Reward = 1) |> Array.map (fun x -> x.RowNumber)
+    //         else v |> Array.map (fun x -> x.RowNumber)  )
+    //     |> Map.toArray
+    //     |> Array.collect snd
+    //     |> Set.ofArray
+
+    let zeroOutFirstGames xs = 
+        if Array.length xs > 5 then 
+            xs |> Array.mapi (fun i (x: Value) -> 
+                if i <= 5 then {x with Reward = 0} else x
+                )
+        else xs
 
 
     // let validRowNumbers = 
     data 
+    |> Array.groupBy (fun x -> x.GameNumber) 
+    |> Array.collect (fun (game, games) -> 
+
+        games
+        |> Array.sortBy (fun x -> x.RowNumber)
+        |> Array.fold (fun acc nextStateMove -> 
+            match acc with 
+            |[] -> [[nextStateMove]]
+            | []::rest -> [nextStateMove] :: rest
+            | (lastStateMove::tail)::rest -> 
+                if nextStateMove.MoveOrder < lastStateMove.MoveOrder then 
+                    // next move order was less than the last move. Start a new game since this move does not belong to this current game run
+                    [nextStateMove] :: (lastStateMove :: tail) :: rest
+                else 
+                    (nextStateMove :: lastStateMove :: tail) :: rest                            
+            ) []
+        |> List.map List.toArray
+        |> List.toArray
+        |> fun games -> 
+            if games |> Array.concat |> Array.exists (fun x -> x.Reward = 1) then 
+                games |> Array.filter (fun xs -> xs |> Array.exists (fun x -> x.Reward = 1 ))    
+            else 
+                games
+
+        |> Array.concat
+    )
+
+
     // |> Array.filter (fun x -> gameNumbersToWin |> Set.contains x.RowNumber)
     // |> Array.map (fun stateAction -> stateAction.Game, stateAction.Reward, stateAction.GameNumber, stateAction.RowNumber)
     |> Array.groupBy (fun x -> x.Game)
@@ -302,8 +341,43 @@ let filterDuplicateGamesStateMoves (data: Policy[]) =
     // |> Array.distinct
 
     data 
+    |> Array.groupBy (fun x -> x.GameNumber) 
+    |> Array.collect (fun (game, games) -> 
+
+        games
+        |> Array.map (fun x -> 
+            let g = x.Game.Split "," |> Array.map Int32.Parse |> Array.toList |>  decodeKeyedGame gameDecoder
+            {x with ScoredGame = reward g} )
+
+        |> Array.fold (fun acc nextStateMove -> 
+            match acc with 
+            |[] -> [[nextStateMove]]
+            | []::rest -> [nextStateMove] :: rest
+            | (lastStateMove::tail)::rest -> 
+                if nextStateMove.MoveOrder < lastStateMove.MoveOrder then 
+                    // next move order was less than the last move. Start a new game since this move does not belong to this current game run
+                    [nextStateMove] :: (lastStateMove :: tail) :: rest
+                else 
+                    (nextStateMove :: lastStateMove :: tail) :: rest                            
+            ) []
+        |> List.map List.toArray
+        |> List.toArray
+
+            // if games |> Array.exists (fun x -> x.ScoredGame >=  0.0025 * 50.) then 
+            //     row |> Array.filter (fun xs -> xs |> Array.exists (fun x -> x.ScoredGame >=  0.0025 * 50.) )
+            // else 
+            //     [||]
+        |> Array.maxBy (fun xs ->
+                xs |> Array.maxBy (fun x -> x.ScoredGame ) |> (fun x -> x.ScoredGame) )
+        // |> Array.concat            
+            
+            // |> Array.map (fun x -> 
+            // {x with ScoredGame = reward g }
+        )
     |> Array.groupBy (fun x -> x.Game)
-    |> Array.map (fun (g,xs) -> xs |> Array.minBy (fun x -> x.MoveCount))
+    |> Array.map (fun (g,xs) ->  xs |> Array.maxBy (fun x -> x.ScoredGame) )
+
+
 
         
 let readAndFormatPolicy file = 
@@ -312,12 +386,38 @@ let readAndFormatPolicy file =
     |> Array.mapi sequenceDataPolicy
     |> filterDuplicateGamesStateMoves
     |> (fun x -> Array.shuffle x; x)
-    |> Array.truncate 2000 // random fast training. 
+    // |> Array.truncate 2000 // random fast training. 
     |> Array.groupBy (fun x -> x.Move)
     |> Map.ofArray
-    // |> trimCommonMoves 1000
+    |> trimCommonMoves 1000
     |> Map.map (fun k v -> v |> Array.toList |> List.map (fun x -> x.Game))
+    |> Map.filter (fun m gs -> 
+            gs |> List.exists (fun g -> 
+                let game = 
+                    g.Split "," 
+                    |> Array.map Int32.Parse 
+                    |> Array.toList 
+                    |> decodeKeyedGame gameDecoder
+
+                let move = m.Replace(",", "" ) |> moveEncoder.Decode
+
+                let topCards = game |> Game.getAllTabsWithColumn |> List.choose (fun (c, x) -> List.tryHead x.Visible |> Option.map (fun x -> c,x)) 
+
+                match move with 
+                | Stock -> false 
+                | Flip _ -> false
+                | Move m -> 
+                    topCards 
+                    |> List.forall (fun (col, card) -> col = m.From && card = m.Card)
+                    |> not
+            )     
+        )
     |> oversample
+    |> Map.toList 
+    |> List.collect (fun (m, gs) -> 
+        gs |> List.map (fun (g: string) -> 
+            let mutliLabelMoves =  Brain.mutliLabelMoves g (decodeKeyedGame gameDecoder)
+            sprintf "%s,%s,%s,%s" (Brain.shortGame g) (Brain.shortGameAdjusted g) mutliLabelMoves m ) )
     |> savePolicy
 
 let readAndFormatValue file = 
@@ -325,9 +425,102 @@ let readAndFormatValue file =
     File.ReadAllLines file 
     |> Array.mapi sequenceDataValue
     |> filterDuplicateGamesStateRewards
-    |> (fun x -> Array.shuffle x; x)
-    |> Array.truncate 2000 // random fast training. 
+    |> Array.map (fun (g,value) -> 
+        sprintf "%s,%s" g (Brain.shortGameAdjusted g), value )
+    // |> (fun x -> Array.shuffle x; x)
+    // |> Array.truncate 2000 // random fast training. 
 
     // |> Array.map (fun x -> x.Game, x.Reward)
     // |> Array.distinctBy (fun (g,_) -> g)
     |> saveValueNet
+
+let readAndFormatValidMoves file = 
+
+    File.ReadAllLines file 
+    |> Array.mapi sequenceDataPolicy
+    |> Array.groupBy (fun x -> x.Game)
+    |> Array.map (fun g -> 
+
+        let game = 
+            (fst g).Split "," 
+            |> Array.map Int32.Parse 
+            |> Array.toList 
+            |> decodeKeyedGame gameDecoder
+
+        let mutliLabelMoves = 
+            game
+            |> GameMover.validMoves 
+            |> List.filter (fun move -> 
+                let topCards = game |> Game.getAllTabsWithColumn |> List.choose (fun (c, x) -> List.tryHead x.Visible |> Option.map (fun x -> c,x)) 
+
+                match move with 
+                | Stock -> false 
+                | Flip _ -> false
+                | Move m -> 
+                    topCards 
+                    |> List.forall (fun (col, card) -> col = m.From && card = m.Card)
+                    |> not )
+            |> List.map (fun x -> x |> moveEncoder.Encode)
+            |> List.fold (fun acc x -> 
+                let t = Array.zip acc x 
+                t |> Array.map (fun (l,r) -> 
+                    let one = int16 1 
+                    if l = one || r = one then one else int16 0)
+            ) (Array.replicate 1171 (int16 0))
+
+            |> Array.map string 
+            |> String.concat ","
+
+        let g = 
+            (fst g).Split "," 
+            |> Array.take (96 * 10)
+            |> Array.chunkBySize 96
+            |> Array.collect (Array.truncate 12)
+            |> String.concat ","
+
+
+        g, mutliLabelMoves )   
+    |> saveValidMove
+
+let readAndFormatRun file = 
+
+    let oversample xs = 
+        xs 
+        |> Array.groupBy snd
+        |> Array.collect (fun (_,rows) -> 
+            let size = 1000
+
+            let rows = Array.truncate 1000 rows
+            if rows.Length < size then 
+                Array.replicate (size / rows.Length) rows 
+                |> Array.concat
+                |> Array.truncate size
+            else
+                rows        
+        )
+
+    File.ReadAllLines file 
+    |> Array.mapi sequenceDataPolicy
+    |> Array.collect (fun x -> x.Game.Split "," |> Array.take (96 * 10) |> Array.chunkBySize 96)
+    |> Array.map (fun x -> 
+        let rec count acc xs = 
+            match xs with 
+            | [] -> acc
+            | xHead::xTail -> 
+                match acc with 
+                | [] -> count [xHead] xTail
+                | head::_ -> 
+                    if head + 1 = xHead then 
+                        count (xHead :: acc) xTail
+                    else acc                 
+        x |> Array.take 12 |> String.concat ",", 
+            x 
+            |> Array.map Int32.Parse 
+            |> Array.toList 
+            |> count [] 
+            |> List.length 
+            |> string 
+        
+        )
+    |> oversample
+    |> saveValidRunCount    

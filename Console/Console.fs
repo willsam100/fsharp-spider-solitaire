@@ -1,5 +1,6 @@
 module Console
 open SpiderSolitare
+open System
 open System.Threading.Tasks
 open System.IO
 open System.Runtime
@@ -14,16 +15,94 @@ type ISaver =
     abstract member Finish: unit -> unit
     abstract member Format: unit -> unit
 
+type RunConfig = {
+    MctsIterationCount: int 
+    LoopCount: int
+    MoveCount: int
+    RandomMoveThreshold: float
+}
+
+let run log (saver: ISaver) parallelCount config gameNumbers = 
+    let moveEncoder = Representation.ActionEncoder()
+
+    let updateHistory game move history = 
+        let gameAndBestMove = 
+            (List.length history + 1), 
+            (game |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat ","), 
+            (moveEncoder.Encode move |> encodeMove)
+        gameAndBestMove :: history
+
+//    let rec printTree depth (node: MonteCarloTreeSearch.Node) = 
+//        printfn "%s%f %d %A %d" depth node.T node.N node.Move (node.Game.GetHashCode())
+//        match node.Children with 
+//        | [] -> ()
+//        | xs -> 
+//            xs |> List.iter (printTree (depth + "  "))
+
+    let getGames node =
+        let rec loop acc (nodes: MonteCarloTreeSearch.MutableNode list) =  
+
+            // let game = Representation.decodeKeyedGame MonteCarloTreeSearch.cardEncoder (node.Game.Split (',') |> Array.map Int32.Parse |> Array.toList)
+            let children = nodes |> List.collect (fun x -> x.Children)
+            loop (acc @ nodes) children
+
+        loop [] [node]
+
+    let playGamesForRange port range = 
+        let brain = BrainServerProcess(port)
+        brain.StartServer()
+        let brainsMover = BrainsMover(port) :> IBransMover
+        let search = MonteCarloTreeSearch.search log brainsMover
+
+        range 
+        |> List.map (fun x -> 
+            match MctsSpiderGameLoop.playGame log config.RandomMoveThreshold search updateHistory config.MctsIterationCount config.MoveCount x with 
+            | isWin, gameNumber, game, movesMade, history -> 
+
+                brainsMover.Flush()
+
+                printfn "%A" game
+                printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f\n" gameNumber (if isWin then "WIN" else "LOST") movesMade
+
+                // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
+                if history |> List.isEmpty |> not then 
+                    saver.SaveGameMoves isWin gameNumber history 
+                
+                gameNumber, isWin )
+        |> fun xs -> 
+            brain.Stop()
+            xs
+
+    let results = 
+        gameNumbers
+        |> List.splitInto parallelCount
+        |> List.mapi (fun i x -> 5100 + i * 2, x)
+        |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
+        |> List.toArray    
+        |> Task.WhenAll    
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+        |> Array.collect List.toArray
+
+    let winningRate: float = (results |> Array.filter snd |> Array.length |> float) / (List.length gameNumbers |> float)
+    printfn "WINING RATE: %.2f" winningRate
+    printfn "Games lost: %s" (results |> Array.filter (snd >> not) |> Array.map (fst >> string) |> String.concat ",")
+
+    saver.Finish()
+    saver.Format()
+
 
 [<EntryPoint>]
 let main argv =
-
     let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw.csv"
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
+
 
     match argv with 
     | [| "format-policy" |] -> Reformat.readAndFormatPolicy policyRaw
     | [| "format-value" |] -> Reformat.readAndFormatValue valueRaw
+    | [| "format-moves" |] -> Reformat.readAndFormatValidMoves policyRaw
+    | [| "format-run" |] -> Reformat.readAndFormatRun valueRaw
     | [| "format-all" |] ->  
         Reformat.readAndFormatPolicy policyRaw
         Reformat.readAndFormatValue valueRaw
@@ -46,103 +125,83 @@ let main argv =
         |> Array.iter (fun (gn, xs) -> s.SaveLegacyFormat gn xs )
 
         s.Finish()
-    | _ -> 
-    
-        let moveEncoder = Representation.ActionEncoder()
-        let mctsSearchIterationCount = 1000
-        let moveCount = 100
-        let loopCount = 10
+    | [| "play"; gameNumbers|] -> 
+        let gameNumbers = 
+            if gameNumbers.Contains "," then 
+                gameNumbers.Split "," |> Array.toList |> List.map System.Int32.Parse
+            else System.Int32.Parse gameNumbers |> List.singleton
 
-        let log = false
-        let gameNumbers = List.replicate 1 [ 0 .. 16] |> List.concat
-        // let gameNumbers = [1]
+        let parallelCount = 1
+        let config = {
+            MctsIterationCount = 2000
+            MoveCount = 5000
+            LoopCount = 0
+            RandomMoveThreshold = 1.0
+        }
 
         let saver = 
+            { new ISaver with 
+                member ths.SaveGameMoves isWin gameNumber history = ()
+                member this.Finish() = ()
+                member this.Format() = () }
 
-            if log then 
-                { new ISaver with 
-                    member ths.SaveGameMoves isWin gameNumber history = ()
-                    member this.Finish() = ()
-                    member this.Format() = () }
+        run true saver parallelCount config gameNumbers
+
+
+    | [| "generate" |] -> 
+
+        Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
+
+        let gameNumbers = List.replicate 20 [ 0 ] |> List.concat
+        let log = false
+        let parallelCount = 8
+        let config = {
+            MctsIterationCount = 100
+            LoopCount = 0
+            MoveCount = 200
+            RandomMoveThreshold = 0.8
+        }
+
+        let saver = 
+            let s = Saver(policyRaw, valueRaw)
+            { new ISaver with 
+                member ths.SaveGameMoves isWin gameNumber history = s.SaveGameMoves isWin gameNumber history
+                member this.Finish() = s.Finish()
+                member this.Format() = s.Format() }
+
+        run log saver parallelCount config gameNumbers
+
+        // if not log then 
+        //     printfn "Training..."
+        //     let train = Process.Start("/Users/willsam100/projects/plaidML/train.sh")
+        //     train.WaitForExit()        
+
+    | [| "train"; network; epochs; load |] -> 
+
+        let args = 
+            if load = "reload" then 
+                sprintf "%s reload" epochs
             else 
-                let s = Saver(policyRaw, valueRaw)
-                { new ISaver with 
-                    member ths.SaveGameMoves isWin gameNumber history = s.SaveGameMoves isWin gameNumber history
-                    member this.Finish() = s.Finish()
-                    member this.Format() = s.Format() }
+                epochs
 
+        let file = 
+            match network with 
+            | "v"
+            | "value" -> "/Users/willsam100/projects/plaidML/train-value.sh"
+            | "p"
+            | "policy" -> "/Users/willsam100/projects/plaidML/train-policy.sh"
+            | x -> failwithf "Invalid network to train: %s" x
 
-        let updateHistory game move history = 
-            let gameAndBestMove = 
-                    (List.length history + 1), 
-                    (game |> Representation.encodeKeyGame MonteCarloTreeSearch.cardEncoder |> Seq.map string |> String.concat ","), 
-                    (moveEncoder.Encode move |> Reformat.encodeMove)
-            gameAndBestMove :: history
+        printfn "Training..."
+        let train = new Process()
+        train.StartInfo.FileName <- file
+        train.StartInfo.Arguments <- args
+        train.Start() |> ignore
+        train.WaitForExit()
 
-        let rec printTree depth (node: MonteCarloTreeSearch.Node) = 
-            printfn "%s%f %d %A %d" depth node.T node.N node.Move (node.Game.GetHashCode())
-            match node.Children with 
-            | [] -> ()
-            | xs -> 
-                xs |> List.iter (printTree (depth + "  "))
+        ()
 
-        let getGames node =
-            let rec loop acc (nodes: MonteCarloTreeSearch.MutableNode list) =  
-
-                // let game = Representation.decodeKeyedGame MonteCarloTreeSearch.cardEncoder (node.Game.Split (',') |> Array.map Int32.Parse |> Array.toList)
-                let children = nodes |> List.collect (fun x -> x.Children)
-                loop (acc @ nodes) children
-
-            loop [] [node]
-
-        let playGamesForRange port range = 
-            let brain = BrainServerProcess(port)
-            brain.StartServer()
-            let brainsMover = BrainsMover(port) :> IBransMover
-            let search = MonteCarloTreeSearch.search log brainsMover
-
-            range 
-            |> List.map (MctsSpiderGameLoop.playGame log search updateHistory mctsSearchIterationCount moveCount)
-            |> List.map (function 
-                | _, _, [] -> false
-                | isWin, gameNumber, history -> 
-                    // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
-                    saver.SaveGameMoves isWin gameNumber history 
-                    brain.Stop()
-                    isWin)
-                
-
-        let rec loop count = 
-
-            let results = 
-                gameNumbers
-                |> List.splitInto 8
-                |> List.mapi (fun i x -> 5100 + i * 2, x)
-                |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
-                |> List.toArray    
-                |> Task.WhenAll    
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-                |> Array.collect List.toArray
-
-            let winningRate: float = (results |> Array.filter id |> Array.length |> float) / (List.length gameNumbers |> float)
-            printfn "WINING RATE: %.2f" winningRate
-
-            saver.Finish()
-            saver.Format()
-
-            if not log then 
-                printfn "Training..."
-                let train = Process.Start("/Users/willsam100/projects/plaidML/train.sh")
-                train.WaitForExit()
-
-            if count > 0 then 
-                loop (count - 1)
-
-        if log then 
-            loop 0
-        else         
-            loop loopCount
-
+    | _ -> 
+        printfn "Bad option. Read the code for help :)"
     0 // return an integer exit code
 

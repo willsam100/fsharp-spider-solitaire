@@ -1,15 +1,19 @@
 
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "SpiderSolitare", "SpiderSolitare\SpiderSolitare.fsproj", "{A42E2DDD-5DA4-4D03-9B84-0CB5A7E8AB60}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SpiderSolitare", "SpiderSolitare\SpiderSolitare.fsproj", "{A42E2DDD-5DA4-4D03-9B84-0CB5A7E8AB60}"
 EndProject
-Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "SpiderSolitarTests", "SpiderSolitarTests\SpiderSolitarTests.fsproj", "{2B8130B4-5723-4F0D-A721-5B1EE8A3D5E0}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SpiderSolitarTests", "SpiderSolitarTests\SpiderSolitarTests.fsproj", "{2B8130B4-5723-4F0D-A721-5B1EE8A3D5E0}"
 EndProject
-Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "FsCheck.NUnit", "..\FsCheck\src\FsCheck.NUnit\FsCheck.NUnit.fsproj", "{6B1B9FF5-8E6D-4461-9D77-CD1619403684}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FsCheck.NUnit", "..\FsCheck\src\FsCheck.NUnit\FsCheck.NUnit.fsproj", "{6B1B9FF5-8E6D-4461-9D77-CD1619403684}"
 EndProject
-Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "FsCheck", "..\FsCheck\src\FsCheck\FsCheck.fsproj", "{32AA3276-BBA1-41CE-B78A-706B8454EC8D}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FsCheck", "..\FsCheck\src\FsCheck\FsCheck.fsproj", "{32AA3276-BBA1-41CE-B78A-706B8454EC8D}"
 EndProject
-Project("{f2a71f9b-5d33-465a-a702-920d77279786}") = "SpiderSolitare.Console", "SpiderSolitare.Console\SpiderSolitare.Console.fsproj", "{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console", "Console\Console.fsproj", "{22D5FFBA-50B6-4D94-BA7C-21E11D9FA06A}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console.Tests", "Console.Tests\Console.Tests.fsproj", "{BB862858-58D9-4759-9E07-F01B26DE9709}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SpiderConsole.Tests", "SpiderConsole.Tests\SpiderConsole.Tests.fsproj", "{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,9 +37,17 @@ Global
 		{32AA3276-BBA1-41CE-B78A-706B8454EC8D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{32AA3276-BBA1-41CE-B78A-706B8454EC8D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{32AA3276-BBA1-41CE-B78A-706B8454EC8D}.Release|Any CPU.Build.0 = Release|Any CPU
-		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{5F0AACCF-1C6A-4ADC-86AC-EE7BFB4EA958}.Release|Any CPU.Build.0 = Release|Any CPU
+		{22D5FFBA-50B6-4D94-BA7C-21E11D9FA06A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{22D5FFBA-50B6-4D94-BA7C-21E11D9FA06A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{22D5FFBA-50B6-4D94-BA7C-21E11D9FA06A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{22D5FFBA-50B6-4D94-BA7C-21E11D9FA06A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BB862858-58D9-4759-9E07-F01B26DE9709}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BB862858-58D9-4759-9E07-F01B26DE9709}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BB862858-58D9-4759-9E07-F01B26DE9709}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BB862858-58D9-4759-9E07-F01B26DE9709}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

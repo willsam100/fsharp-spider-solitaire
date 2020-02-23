@@ -350,7 +350,7 @@ type Game =
             [x.One; x.Two; x.Three; x.Four; x.Five; x.Six; x.Seven; x.Eight; x.Nine; x.Ten]
             |> List.mapi (fun i tab -> tab |> tabToString |> (fun s -> sprintf "%d::%s" (i + 1) s))
             |> String.concat "\n"
-            |> (fun s -> sprintf "\n%s\nStock: %d, H = %A; D = %A, S = %A, C = %A" s stockSize x.Hearts x.Diamonds x.Spades x.Clubs)
+            |> (fun s -> sprintf "%s\nStock: %d, H = %A; D = %A, S = %A, C = %A" s stockSize x.Hearts x.Diamonds x.Spades x.Clubs)
 
         override x.ToString() = 
             x.AsString Tableau.toString

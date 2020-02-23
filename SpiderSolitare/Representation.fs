@@ -139,16 +139,22 @@ type CardEncoderKeyed() =
         cardToEncode |> Map.find (sprintf "%s%d" suit value) 
 
     let decodeCard card = 
-        let cardString = encodingToCard |> Map.find card
-       
-        match cardString with 
-        | "-" -> None
-        | _ -> 
-            let suit = cardString.[0] |> string
-            let value = cardString.Substring 1 |> int32
-            match CardModule.create value (CardModule.parseSuit suit) with 
-            | Some x -> Some x
-            | None -> failwithf "Invalid encoding card: %s" cardString
+        try 
+            let cardString = encodingToCard |> Map.find card
+           
+            match cardString with 
+            | "-" -> None
+            | _ -> 
+                let suit = cardString.[0] |> string
+                let value = cardString.Substring 1 |> int32
+                match CardModule.create value (CardModule.parseSuit suit) with 
+                | Some x -> Some x
+                | None -> failwithf "Invalid encoding card: %s" cardString
+        with 
+        | e -> 
+            printfn "%A" card
+            encodingToCard |> Map.toList |> List.map (fst >> string) |> String.concat "," |> printfn "%s"
+            raise e
 
     member __.Encode card = encode card
     member __.EmptyCard = ecodedEmtpyCard
