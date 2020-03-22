@@ -40,7 +40,7 @@ let run log (saver: ISaver) parallelCount config gameNumbers =
 //            xs |> List.iter (printTree (depth + "  "))
 
     let getGames node =
-        let rec loop acc (nodes: MonteCarloTreeSearch.MutableNode list) =  
+        let rec loop acc (nodes: MonteCarloTreeSearch.MutableNode<'a, 'b> list) =  
 
             // let game = Representation.decodeKeyedGame MonteCarloTreeSearch.cardEncoder (node.Game.Split (',') |> Array.map Int32.Parse |> Array.toList)
             let children = nodes |> List.collect (fun x -> x.Children)
@@ -49,14 +49,13 @@ let run log (saver: ISaver) parallelCount config gameNumbers =
         loop [] [node]
 
     let playGamesForRange port range = 
-        let brain = BrainServerProcess(port)
+        let brain = BrainMoverServer(port)
         brain.StartServer()
-        let brainsMover = BrainsMover(port) :> IBransMover
-        let search = MonteCarloTreeSearch.search log brainsMover
+        let brainsMover = BrainsMoverClient(port) :> IBransMover
 
         range 
         |> List.map (fun x -> 
-            match MctsSpiderGameLoop.playGame log config.RandomMoveThreshold search updateHistory config.MctsIterationCount config.MoveCount x with 
+            match MctsSpiderGameLoop.playGame log config.RandomMoveThreshold brainsMover updateHistory config.MctsIterationCount config.MoveCount x with 
             | isWin, gameNumber, game, movesMade, history -> 
 
                 brainsMover.Flush()
@@ -133,7 +132,7 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = 2000
+            MctsIterationCount = 10000
             MoveCount = 5000
             LoopCount = 0
             RandomMoveThreshold = 1.0
@@ -152,14 +151,14 @@ let main argv =
 
         Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
-        let gameNumbers = List.replicate 20 [ 0 ] |> List.concat
+        let gameNumbers = List.replicate 50 [ 1 ] |> List.concat
         let log = false
         let parallelCount = 8
         let config = {
-            MctsIterationCount = 100
+            MctsIterationCount = 5000
             LoopCount = 0
-            MoveCount = 200
-            RandomMoveThreshold = 0.8
+            MoveCount = 10
+            RandomMoveThreshold = 0.9
         }
 
         let saver = 

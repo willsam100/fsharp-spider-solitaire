@@ -7,7 +7,6 @@
     <ProjectReference Include="..\SpiderSolitare\SpiderSolitare.fsproj" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="BrainServer.fs" />
     <Compile Include="Reformat.fs" />
     <Compile Include="Persistance.fs" />
     <Compile Include="MctsSpiderGameLoop.fs" />

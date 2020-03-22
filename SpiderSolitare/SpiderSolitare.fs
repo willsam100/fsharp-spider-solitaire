@@ -447,20 +447,22 @@ module Game =
 
         let constructTableaus (game, cards) column = 
             match column with 
-            | C1 | C2 | C3 | C4 -> 6
-            | C5 | C6 | C7 | C8 | C9 | C10 -> 5
+            | C1 | C2 | C3 | C4 -> Math.Min (6, List.length cards)
+            | C5 | C6 | C7 | C8 | C9 | C10 -> Math.Min (5, List.length cards)
             |> (fun count -> 
                 game |> updateColumn column (createTableau count cards), cards |> List.skip count)
 
         let constructStock (game, cards) = 
             {game with Stock = cards}
 
-        let cards = 
-            //List.replicate 2 deck 
-            List.zip deck deck
-            |> List.map (fun (x,y) -> [x;y])
-            |> List.concat
-            |> LogicUtils.shuffleList rand
+        let cards =
+            if deck |> List.length < 52 then 
+                deck |> LogicUtils.shuffleList rand
+            else  
+                List.zip deck deck
+                |> List.map (fun (x,y) -> [x;y])
+                |> List.concat
+                |> LogicUtils.shuffleList rand
 
         Coord.allColumns |> Seq.fold (constructTableaus) (emptyGame, cards) |> constructStock
 
@@ -524,7 +526,7 @@ module Game =
             // | _ -> false   
 
             match game.Spades with 
-            | One -> true
+            | Eight -> true
             | _ -> false
 
     let toString game =
@@ -568,10 +570,10 @@ module GameResult =
     // let existsFalse = fold false false
     // let existsWinTrue = fold false true
 
-    // let map f = function 
-    // | Lost x -> Lost x
-    // | Won -> Won
-    // | Continue (g, m) -> f g m |> Continue 
+    let map f = function 
+    | Lost g -> Lost (f g)
+    | Won g -> Won (f g)
+    | Continue (g, m) ->  Continue (f g, m) 
 
     // let iter g f = fold () () f g
 
@@ -646,6 +648,7 @@ module GameMover =
             | Continue (g,m) -> g
             | _ -> loop ()
         loop()
+        
 
     let playMove move game = 
         // let toGameResult = isComplete lostOrContine

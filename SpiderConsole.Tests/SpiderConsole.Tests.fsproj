@@ -5,9 +5,13 @@
 
         <IsPackable>false</IsPackable>
         <GenerateProgramFile>false</GenerateProgramFile>
+        <OutputType>Library</OutputType>
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Update="FSharp.Core" Version="4.7.0" />
+        <PackageReference Include="FsCheck" Version="2.14.2" />
+        <PackageReference Include="FsCheck.NUnit" Version="2.14.2" />
         <PackageReference Include="nunit" Version="3.12.0" />
         <PackageReference Include="NUnit3TestAdapter" Version="3.15.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.4.0" />
@@ -15,7 +19,12 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="MtctsTests.fs" />
+        <Compile Include="Async.fs" />
+        <Compile Include="TestsSetupUtils.fs" />
+        <Compile Include="ExpandNode.fs" />
+        <Compile Include="RewardTests.fs" />
+        <Compile Include="IterationTests.fs" />
+        <Compile Include="IterationNeuralNetworkTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

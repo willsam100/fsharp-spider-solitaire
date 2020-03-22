@@ -1,4 +1,4 @@
-module Brain 
+module SpiderSolitare.Brain 
 open System.Diagnostics
 open System.Threading
 open System.Collections.Generic
@@ -104,7 +104,7 @@ let format (game:string) =
 
 //     sprintf "%s,%s" tableau lastRow
 
-type BrainServerProcess(port) = 
+type BrainMoverServer(port) = 
     let mutable p: Process = null
 
     let runPythonServer port = 
@@ -139,7 +139,7 @@ type BrainServerProcess(port) =
             // Thread.Sleep 5000
 
 
-type BrainsMover(port) = 
+type BrainsMoverClient(port) = 
     
     let gamesPolicyNet = new Dictionary<Game.Game, (MoveType * float) list>()
     let gamesValueNet = new Dictionary<Game.Game, float>()
@@ -313,7 +313,6 @@ type BrainsMover(port) =
             m
 
 
-
     interface MonteCarloTreeSearch.IBransMover with 
         member this.Flush() =
             moves.Clear()
@@ -323,18 +322,19 @@ type BrainsMover(port) =
 
 
         member this.GetBestMove(game:Game.Game) = 
-            timed "policy" <| fun () -> 
+//            timed "policy" <| fun () -> 
                 getPolicy game
                     (fun (encoded, validMoves) -> 
                         let body = {Game = encoded; ValidMoves = validMoves} |> JsonConvert.SerializeObject
-                        let bestMoves = 
-                            post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponsePolicy>
+                        let body = post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText
+//                        printfn "%s" body
+                        let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
 
                         Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove x, y)
                     )
         
         member this.GetValue game = 
-            timed "value" <| fun () -> 
+//            timed "value" <| fun () -> 
                 getValue game 
                     (fun encoded -> 
                         let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject

@@ -3,6 +3,7 @@ module Reformat
 // #r "/Users/willsam100/projects/SpiderSolitare/SpiderSolitare/bin/Debug/netstandard2.0/SpiderSolitare.dll"
 // #r "/Users/willsam100/projects/SpiderSolitare/Console/bin/Debug/netcoreapp3.0/Console.dll"
 
+open SpiderSolitare
 open System
 open System.IO
 open System.Collections.Generic
@@ -75,7 +76,7 @@ let sequenceDataPolicy rowNumber (x: string) =
 
     let moveOrder = Array.head row |> Int32.Parse
     let game = row |> Array.skip 1 |> Array.take (row.Length - 2) |> String.concat ","
-    let move = row.[row.Length - 2] |> Int32.Parse |> decodeMove |> Array.map string  |> String.concat ","
+    let move = row.[row.Length - 3] |> Int32.Parse |> decodeMove |> Array.map string  |> String.concat ","
     let gameNumber = row.[row.Length - 2] |> Int32.Parse
     let moveCount = Array.last row |> Int32.Parse
 
@@ -369,26 +370,70 @@ let filterDuplicateGamesStateMoves (data: Policy[]) =
             //     [||]
         |> Array.maxBy (fun xs ->
                 xs |> Array.maxBy (fun x -> x.ScoredGame ) |> (fun x -> x.ScoredGame) )
-        // |> Array.concat            
-            
-            // |> Array.map (fun x -> 
-            // {x with ScoredGame = reward g }
+//        |> Array.concat            
+//            
+//             |> Array.map (fun x -> 
+//             {x with ScoredGame = reward g }
         )
+    
     |> Array.groupBy (fun x -> x.Game)
     |> Array.map (fun (g,xs) ->  xs |> Array.maxBy (fun x -> x.ScoredGame) )
+    
+    
+let buildMap (data: Policy[]) =
+    data
+    |> Array.distinctBy (fun x -> x.GameNumber, x.Move, x.Game)
+    |> Array.groupBy (fun x -> x.GameNumber)
+    |> Array.map (fun (game, games) ->
+        let minGameMoves = 
+            games
+            |> Array.fold (fun acc nextStateMove -> 
+                match acc with 
+                |[] -> [[nextStateMove]]
+                | []::rest -> [nextStateMove] :: rest
+                | (lastStateMove::tail)::rest -> 
+                    if nextStateMove.MoveOrder < lastStateMove.MoveOrder then 
+                        // next move order was less than the last move. Start a new game since this move does not belong to this current game run
+                        [nextStateMove] :: (lastStateMove :: tail) :: rest
+                    else 
+                        (nextStateMove :: lastStateMove :: tail) :: rest                            
+                ) []
+            |> List.map List.length
+            |> List.min
+        game, minGameMoves
+        )
+    |> Map.ofArray
+    
+let filterDuplicateeMoves (data: Policy[]) =
 
-
-
-        
-let readAndFormatPolicy file = 
-
-    File.ReadAllLines file 
-    |> Array.mapi sequenceDataPolicy
-    |> filterDuplicateGamesStateMoves
+    data
+    |> Array.groupBy (fun x -> x.Game)
+    |> Array.choose (fun (_, games) ->
+        match games |> Array.map (fun x -> x.Move) |> Array.distinct |> Array.length with
+        | 1 -> Some games
+        | _ ->
+//            let m = buildMap data
+            
+            let validMove = 
+                games
+                |> Array.distinctBy (fun x -> x.Move, x.GameNumber, x.Game)
+                |> Array.map (fun x -> x, x.MoveCount)
+                |> Array.minBy snd
+                |> fst
+                |> fun x -> x.Move
+                
+            games |> Array.filter (fun x -> x.Move = validMove) |> Some )
+    |> Array.collect id
+    
+    
+let formatPolicyData data =
+    data
+//    |> filterDuplicateGamesStateMoves
+    |> filterDuplicateeMoves
     |> (fun x -> Array.shuffle x; x)
     // |> Array.truncate 2000 // random fast training. 
     |> Array.groupBy (fun x -> x.Move)
-    |> Map.ofArray
+    |> Map.ofArray 
     |> trimCommonMoves 1000
     |> Map.map (fun k v -> v |> Array.toList |> List.map (fun x -> x.Game))
     |> Map.filter (fun m gs -> 
@@ -416,8 +461,25 @@ let readAndFormatPolicy file =
     |> Map.toList 
     |> List.collect (fun (m, gs) -> 
         gs |> List.map (fun (g: string) -> 
-            let mutliLabelMoves =  Brain.mutliLabelMoves g (decodeKeyedGame gameDecoder)
-            sprintf "%s,%s,%s,%s" (Brain.shortGame g) (Brain.shortGameAdjusted g) mutliLabelMoves m ) )
+//            let mutliLabelMoves =  Brain.mutliLabelMoves g (decodeKeyedGame gameDecoder)
+            sprintf "%s,%s,%s" (Brain.shortGame g) (Brain.shortGameAdjusted g) m ) )
+    
+        
+let readAndFormatPolicy file = 
+
+    File.ReadAllLines file 
+    |> Array.mapi sequenceDataPolicy
+    |> Array.filter (fun g ->
+        let game = 
+            g.Game.Split "," 
+            |> Array.map Int32.Parse 
+            |> Array.toList 
+            |> decodeKeyedGame gameDecoder
+            
+        let cardCount = game |> Game.Game.getAllTabs |> List.sumBy (Tableau.getVisible >> List.length)
+        
+        cardCount < 30 )
+    |> formatPolicyData
     |> savePolicy
 
 let readAndFormatValue file = 
