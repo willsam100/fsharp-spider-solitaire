@@ -78,13 +78,15 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
     pastGames.[root.GameHashCode] <-Set.empty
     // let s = Stopwatch()
 
-    let rec loop history count root game =
+    let rec loop foundWinningPath history count root game =
         let (t,n) = getMetrics gameToMetrics root
-        // printfn "GN:%d, pg:%d" gameNumber count
         
-        // s.Restart()
-//        mctsSearch pastGames gameToMetrics iterationCount root
-        let foundWinningPath = searcher.SearchWithNN(iterationCount, root)
+        
+        let foundWinningPath =
+            if foundWinningPath then true
+            else
+                searcher.SearchWithNN(iterationCount, root)
+        
 
         let movesMade = float (totalCount - count)
         let r = randomMoveThreshold
@@ -105,7 +107,7 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
                         printfn "Move: %A" nMove.Move
                         printfn "N: %f.0 "(getMetrics gameToMetrics nMove |> snd)
   
-                    loop (updateHistory game nMove.Move.Value history) (count - 1) nMove nMove.Game
+                    loop foundWinningPath (updateHistory game nMove.Move.Value history) (count - 1) nMove nMove.Game
 
             | Some didWin -> 
                 let game = nMove.Game
@@ -115,7 +117,6 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
                 else
                     false, gameNumber, nMove.Game, movesMade,  history
 
-
-    loop [] totalCount root game 
+    loop false [] totalCount root game 
 
     // 198

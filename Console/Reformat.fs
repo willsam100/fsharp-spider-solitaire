@@ -462,7 +462,7 @@ let formatPolicyData data =
     |> List.collect (fun (m, gs) -> 
         gs |> List.map (fun (g: string) -> 
 //            let mutliLabelMoves =  Brain.mutliLabelMoves g (decodeKeyedGame gameDecoder)
-            sprintf "%s,%s,%s" (Brain.shortGame g) (Brain.shortGameAdjusted g) m ) )
+            sprintf "%s,%s,%s" (Brain.shortGame g) (Brain.shortGamePlusOne g) m ) )
     
         
 let readAndFormatPolicy file = 

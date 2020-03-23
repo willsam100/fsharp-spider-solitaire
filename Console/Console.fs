@@ -132,7 +132,7 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = 10000
+            MctsIterationCount = 2000
             MoveCount = 5000
             LoopCount = 0
             RandomMoveThreshold = 1.0

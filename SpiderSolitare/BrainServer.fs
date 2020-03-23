@@ -8,6 +8,7 @@ open System
 open SpiderSolitare
 open Newtonsoft.Json
 open SpiderSolitare.MonteCarloTreeSearch
+open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Representation
 
 type Request = {
@@ -70,7 +71,14 @@ let shortGameAdjusted (g: string) =
     |> Array.map (Array.truncate 24)
     |> Array.collect (Array.tail)
     |> String.concat ","
-
+    
+let shortGamePlusOne (g: string) = 
+    g.Split "," 
+    |> Array.take (96 * 10)
+    |> Array.chunkBySize 96
+    |> Array.map (Array.truncate 24 >> Array.map Int32.Parse)
+    |> Array.collect (Array.map (fun x -> (if x = 14 then 1 else  x + 1) |> string))
+    |> String.concat ","
 
 let format (game:string) = 
     let game = game.Split ","
@@ -224,7 +232,7 @@ type BrainsMoverClient(port) =
                 //     gamesPolicyNet.Clear()
 
                 let g = MonteCarloTreeSearch.encodeGame game 
-                let encoded = sprintf "%s,%s" (shortGame g) (shortGameAdjusted g)
+                let encoded = sprintf "%s,%s" (shortGame g) (shortGamePlusOne g)
 
                 let validMoves = 
                     mutliLabelMoves g (decodeKeyedGame gameDecoder)
