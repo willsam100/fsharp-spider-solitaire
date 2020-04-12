@@ -10,9 +10,11 @@ open System.Collections.Generic
 open SpiderSolitare.Representation
 open SpiderSolitare.Game
 open SpiderSolitare.MonteCarloTreeSearch
+open SpiderSolitare.Brain
 
-let moveEncoder = ActionEncoder()
-let gameDecoder = CardEncoderKeyed()
+let log m f = 
+    printfn m 
+    f
 
 [<Struct>]
 type Policy = {
@@ -23,6 +25,7 @@ type Policy = {
     RowNumber: int
     MoveCount: int
     ScoredGame: float
+    LongestColumn: Column
 }
 
 [<Struct>]
@@ -44,11 +47,15 @@ type LegacyFile = {
     RowNumber: int
 }
 
-let format (game:string) = 
-    let game = game.Split ","
-    let tableau = game |> Array.take (96 * 10) |> String.concat ","
-    let stock = game |> Array.skip (96 * 10) |> Array.truncate 10 |> String.concat ","
-    sprintf "%s,%s" tableau stock
+type ColumnGame = {
+    Game: Game
+    Column: Column
+}
+
+let getLongestColumnForGame g = g |> GameMover.getRuns |> List.maxBy (fun (c, cs) -> cs.Length) |> fst
+
+let getLongestColumn tabsize x = 
+    x |> gameDecoded tabsize |> getLongestColumnForGame
 
 let sequenceDataLegacy rowNumber (x: string) = 
     let row = x.Split ","
@@ -72,29 +79,60 @@ let sequenceDataLegacy rowNumber (x: string) =
     }   
 
 let sequenceDataPolicy rowNumber (x: string) = 
-    let row = x.Split ","
+    async {
+        do! Async.SwitchToThreadPool()
+        
+        let row = x.Split ","
 
-    let moveOrder = Array.head row |> Int32.Parse
-    let game = row |> Array.skip 1 |> Array.take (row.Length - 2) |> String.concat ","
-    let move = row.[row.Length - 3] |> Int32.Parse |> decodeMove |> Array.map string  |> String.concat ","
-    let gameNumber = row.[row.Length - 2] |> Int32.Parse
-    let moveCount = Array.last row |> Int32.Parse
+        let moveOrder = Array.head row |> Int32.Parse
+        let game = row |> Array.skip 1 |> Array.take (row.Length - 2) |> String.concat ","
+        let move = row.[row.Length - 3] |> Int32.Parse |> decodeMove |> Array.map string  |> String.concat ""
+        let gameNumber = row.[row.Length - 2] |> Int32.Parse
+        let moveCount = Array.last row |> Int32.Parse
 
-    // format game, move, outcome, gameNumber, moveOrder
-    try 
-        {
-            Game = format game
-            Move = move
-            MoveOrder = moveOrder
-            GameNumber = gameNumber
-            RowNumber = rowNumber
-            MoveCount = moveCount
-            ScoredGame = 0.
-        } 
-    with 
-    | e -> 
-        printfn "RowNumber:%d" rowNumber
-        raise e    
+        return 
+            // format game, move, outcome, gameNumber, moveOrder
+            try 
+                {
+                    Game = format13 game
+                    Move = move
+                    MoveOrder = moveOrder
+                    GameNumber = gameNumber
+                    RowNumber = rowNumber
+                    MoveCount = moveCount
+                    ScoredGame = 0.
+                    LongestColumn = format13 game |> getLongestColumn 13
+                } 
+            with 
+            | e -> 
+                printfn "RowNumber:%d" rowNumber
+                raise e    
+    }
+
+let sequenceDataColumn rowNumber (x: string) = 
+    async {
+        do! Async.SwitchToThreadPool()
+        
+        let row = x.Split ","
+        let game = 
+            row 
+            |> Array.skip 1 
+            |> Array.take (96 * 10) 
+            |> String.concat ","
+            |> gameDecoded 96
+
+        return 
+            // format game, move, outcome, gameNumber, moveOrder
+            try 
+                {
+                    Game = game
+                    Column = game |> getLongestColumnForGame
+                } 
+            with 
+            | e -> 
+                printfn "RowNumber:%d" rowNumber
+                raise e    
+    }
 
 let sequenceDataValue rowNumber (x: string) = 
 
@@ -110,7 +148,7 @@ let sequenceDataValue rowNumber (x: string) =
             failwithf "Parsing failed. Reward is not in acceptable range (0 - 1), actual: %d" reward
 
         {
-            Game = format game
+            Game = format96 game
             Reward = reward
             MoveOrder = moveOrder
             GameNumber = gameNumber
@@ -128,41 +166,133 @@ let sequenceDataValue rowNumber (x: string) =
 
 let trimCommonMoves maxCount map = 
     map  
-    |> Map.map (fun m (gs: Policy []) -> 
-        gs
-        |> Array.sortByDescending (fun x -> x.RowNumber)
-        |> Array.truncate maxCount
-
+    |> Array.map (fun (m, (gs: 'a [])) -> 
+        m, gs |> Array.truncate maxCount
     )
-let oversample map = 
 
-    let rec oversample targetCount gs = 
-        if List.length gs < targetCount then 
-            let gs = List.replicate ( targetCount + 1 / gs.Length ) gs |> List.concat 
-            oversample targetCount gs
-        else
-            List.truncate targetCount gs
+let permuteColumns (game, move:int, nextGame) =
+    // async {
+    //     do! Async.SwitchToThreadPool()        
+        
+        let game = game |> gameDecoded 26
+        let nextGame = nextGame |> gameDecoded 26
+        let move = move |> decodeMove |> Array.map string |> String.concat "" |> moveEncoder.Decode
 
-    let maxCount =
-        if Map.count map = 0 then 
-            0 
+        let allTransforms =
+            (C1, C1) :: // prepend identify to keep the original in the output
+                (Coord.allColumns
+                    |> List.collect (fun x -> Coord.allColumns |> List.map (fun y -> x,y) )
+                    |> List.filter (fun (x,y) -> x <> y) )
+                     
+        allTransforms
+        |> List.map (fun (left, right) ->
+            
+            let game' =                
+                let tabLeft = Game.getTabForColumn game left
+                let tabRight = Game.getTabForColumn game right
+                Game.updateColumn left tabRight game
+                |> Game.updateColumn right tabLeft
+
+            let nextGame' =                
+                let tabLeft = Game.getTabForColumn nextGame left
+                let tabRight = Game.getTabForColumn nextGame right
+                nextGame |> Game.updateColumn left tabRight |> Game.updateColumn right tabLeft
+                    
+            let move =
+                match move with
+                | Move c ->
+                    match c.From, c.To with
+                    | f, t when f = left && t = right -> { c with From = right; To = left } |> Move
+                    | f, t when f = right && t = left -> { c with From = left; To = right } |> Move
+                    | f, _ when f = left -> { c with From = right; } |> Move
+                    | f, _ when f = right -> { c with From = left; } |> Move
+                    | _, t when t = left -> { c with To = right; } |> Move
+                    | _, t when t = right -> { c with To = left; } |> Move
+                    | _, _ -> c |> Move
+                | x -> x
+                
+            game' |> encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock, 
+                move |> moveEncoder.Encode  |> encodeMove, 
+                    nextGame' |> encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock
+            )
+        |> List.distinct
+    // }
+
+let permuteColumnsGame (policy: ColumnGame) =
+    async {
+        do! Async.SwitchToThreadPool()        
+        
+        let game = policy.Game
+
+        let allTransforms =
+            (C1, C1) :: // prepend identify to keep the original in the output
+                (Coord.allColumns
+                    |> List.collect (fun x -> Coord.allColumns |> List.map (fun y -> x,y) )
+                    |> List.filter (fun (x,y) -> x <> y) )
+                
+        return         
+            allTransforms
+            |> List.toArray
+            |> Array.map (fun (left, right) ->
+                
+                let game' =                
+                    let tabLeft = Game.getTabForColumn game left
+                    let tabRight = Game.getTabForColumn game right
+                    Game.updateColumn left tabRight game
+                    |> Game.updateColumn right tabLeft
+
+                let longest = 
+                    match policy.Column with 
+                    | x when x = left -> right
+                    | x when x = right -> left
+                    | x -> x
+                    
+                { policy with Game = game';  Column = longest }
+                )
+            |> Array.distinct
+    }
+    
+let permuteCardsGame (policy: ColumnGame) =
+    async {
+        do! Async.SwitchToThreadPool()
+
+        let newGame = policy.Game |> encodeGame |> format13
+
+        let makeGame increment = 
+            let game' = shortGamePlusOne increment newGame |> gameDecoded 13
+            {policy with 
+                Game = game'
+                Column = game' |> getLongestColumnForGame}
+
+        return         
+            [|
+                policy
+                makeGame 1
+                makeGame 2
+                makeGame 3
+                makeGame 4
+                makeGame 5
+                makeGame 6
+                makeGame 7
+                makeGame 8
+                makeGame 9
+                makeGame 10
+            |]
+    }
+
+let rec oversample (targetCount: int) (gs: 'a []) =
+    let delta = targetCount - gs.Length
+    if delta <= 0 then Array.truncate targetCount gs 
+    else 
+        if delta < gs.Length then 
+            Array.append gs (gs |> Array.truncate delta)
         else 
-            map 
-            |> Map.toList 
-            |> List.map (fun (_, gs) -> gs |> List.distinct |> List.length)
-            |> List.max
+            oversample targetCount (Array.append gs gs)
 
-    printfn "Max: %d" maxCount
-
-    map 
-    |> Map.map (fun (m: string) (gs: string list) -> 
-        // let gs = List.distinct gs
-
-        if gs.Length = maxCount then 
-            gs
-        else 
-            oversample maxCount gs
-    )
+let getOversampleCount map = 
+    map
+    |> Array.map (fun (_, gs) -> gs |> Array.distinct |> Array.length)
+    |> Array.max
 
 let printMoves map = 
 
@@ -184,13 +314,83 @@ let printMoves map =
         // |> List.iter (printfn "%A")
     )
 
-
-let savePolicy (rows: string list) = 
-    File.WriteAllLines ("/Users/willsam100/Desktop/spider-policy-net.csv", rows)
+let getPolicyStreamWriter () = 
+    // File.WriteAllLines ("/Users/willsam100/Desktop/spider-policy-net.csv", rows)
+    if File.Exists "/Users/willsam100/Desktop/spider-policy-net.csv" then 
+        File.Delete "/Users/willsam100/Desktop/spider-policy-net.csv"
 
     // Delete the binary file as we have generated a new csv file with more data.
     if File.Exists "/Users/willsam100/Desktop/spider-policy-net.csv-binary.npy" then 
         File.Delete "/Users/willsam100/Desktop/spider-policy-net.csv-binary.npy"
+
+    new StreamWriter("/Users/willsam100/Desktop/spider-policy-net.csv")
+
+let isValidGame (game:Game) = 
+    async {
+        do! Async.SwitchToThreadPool()
+        if game |> Game.getAllTabs |> List.map Tableau.length |> List.sum = 0 then 
+            return false, game
+        else 
+            return 
+                game
+                |> GameMover.getRuns 
+                |> List.map (fun (c, cs) -> c,cs.Length) // Get the length of run for each column
+                |> List.groupBy snd // group be length
+                |> List.maxBy (fun (x,xs) -> x)  // get the longest run
+                |> snd 
+                |> List.length = 1 //the longest run should only have 1 column
+                , game
+    }
+    
+let isValidGamePolicy (x: ColumnGame) = 
+    async {
+        let! (a,b) = isValidGame x.Game
+        return a, x
+    }
+
+let startsWithAce (x: Policy) = 
+    let longesColumn = x.Game |> getLongestColumn 13
+    x.Game 
+    |> gameDecoded 13
+    |> GameMover.getRuns
+    |> List.find (fun (c,_) -> c = longesColumn )
+    |> snd 
+    |> fun x -> CardModule.getValue x.[0] = 1
+
+let appendPolicy (writer: StreamWriter) count (outputFormat: string -> string -> string) (rows: ColumnGame []) = 
+
+    printfn "Count for move: %d - max count: %d" rows.Length count
+
+    let outputFormat (g,m) = outputFormat m g
+
+    let zeroOutOtherColumns (x: ColumnGame) = 
+        let game =  x.Game 
+        let emptyTab = Tableau.create []
+
+        {x with 
+            Game = 
+                game
+                |> Game.getAllTabsWithColumn
+                |> List.filter (fun (c,_) -> x.Column <> c)
+                |> List.map fst
+                |> List.fold (fun game col -> Game.updateColumn col emptyTab game ) game
+        }
+
+    rows   
+    |> (fun x -> 
+        if x.Length > count then 
+            failwithf "Not an even distributin for oversampling. Valuable data is being thrown away - Real lenght: %d, Expected oversample count:%d" x.Length count
+   
+        x )
+    // |> Array.map (zeroOutOtherColumns)
+    |> Array.distinct
+    |> oversample (count)
+    |> log "Oversampled"
+    |> Array.map (fun x -> x.Game |> encodeGame |> format13, x.Column |> Coord.toInt |> (fun x -> x - 1 ) |> string)
+    |> (fun x -> Array.shuffle x; x)
+    |> Array.iter (outputFormat >> writer.WriteLine)
+
+    // File.AppendAllLines ("/Users/willsam100/Desktop/spider-policy-net.csv", output)
 
 let saveValueNet data = 
     let rows = data |> Array.map (fun (g, outcome) -> sprintf "%s,%d" g outcome )
@@ -347,7 +547,7 @@ let filterDuplicateGamesStateMoves (data: Policy[]) =
 
         games
         |> Array.map (fun x -> 
-            let g = x.Game.Split "," |> Array.map Int32.Parse |> Array.toList |>  decodeKeyedGame gameDecoder
+            let g = x.Game.Split "," |> Array.map Int32.Parse |> Array.toList |>  decodeKeyedGame cardEncoder
             {x with ScoredGame = reward g} )
 
         |> Array.fold (fun acc nextStateMove -> 
@@ -425,70 +625,70 @@ let filterDuplicateeMoves (data: Policy[]) =
             games |> Array.filter (fun x -> x.Move = validMove) |> Some )
     |> Array.collect id
     
-    
+let filterBottomPerformance (data: Policy[]) =
+
+    data
+    |> Array.groupBy (fun x -> x.GameNumber)
+    |> Array.collect (fun (g, xs) ->
+        xs
+        |> Array.sortBy (fun x -> x.MoveCount)
+        |> Array.truncate (float xs.Length * 0.5 |> int) )
+
+let outputFormat m (g: string) = 
+
+    if (shortGamePlusOne 0 g |> fun x -> x.Split "," |> Array.forall (fun x -> x = "1")) then 
+        failwith "empty game"
+
+    sprintf "%s,%s" (shortGamePlusOne 0 g) m
+
 let formatPolicyData data =
     data
-//    |> filterDuplicateGamesStateMoves
-    |> filterDuplicateeMoves
+    |> Array.map permuteCardsGame |> Async.Parallel |> Async.RunSynchronously |> Array.collect id
+    |> Array.map (isValidGamePolicy) |> Async.Parallel |> Async.RunSynchronously
+    |> log "Computed valid games"
+    |> Array.filter fst
+    |> Array.map snd
+    |> Array.distinctBy (fun x -> x.Game)
+    |> Array.map (permuteColumnsGame) |> Async.Parallel |> Async.RunSynchronously |> Array.collect id
+    |> log "Permuted cards"
+    |> fun xs -> 
+        printfn "Games Count: %d" xs.Length
+        xs
+    |> Array.distinctBy (fun x -> x.Game)
     |> (fun x -> Array.shuffle x; x)
-    // |> Array.truncate 2000 // random fast training. 
-    |> Array.groupBy (fun x -> x.Move)
-    |> Map.ofArray 
-    |> trimCommonMoves 1000
-    |> Map.map (fun k v -> v |> Array.toList |> List.map (fun x -> x.Game))
-    |> Map.filter (fun m gs -> 
-            gs |> List.exists (fun g -> 
-                let game = 
-                    g.Split "," 
-                    |> Array.map Int32.Parse 
-                    |> Array.toList 
-                    |> decodeKeyedGame gameDecoder
-
-                let move = m.Replace(",", "" ) |> moveEncoder.Decode
-
-                let topCards = game |> Game.getAllTabsWithColumn |> List.choose (fun (c, x) -> List.tryHead x.Visible |> Option.map (fun x -> c,x)) 
-
-                match move with 
-                | Stock -> false 
-                | Flip _ -> false
-                | Move m -> 
-                    topCards 
-                    |> List.forall (fun (col, card) -> col = m.From && card = m.Card)
-                    |> not
-            )     
-        )
-    |> oversample
-    |> Map.toList 
-    |> List.collect (fun (m, gs) -> 
-        gs |> List.map (fun (g: string) -> 
-//            let mutliLabelMoves =  Brain.mutliLabelMoves g (decodeKeyedGame gameDecoder)
-            sprintf "%s,%s,%s" (Brain.shortGame g) (Brain.shortGamePlusOne g) m ) )
+    |> Array.groupBy (fun x ->  x.Column )
+    |> log "trimmed game states"
+    |> fun map -> getOversampleCount map, map
     
-        
 let readAndFormatPolicy file = 
 
-    File.ReadAllLines file 
-    |> Array.mapi sequenceDataPolicy
-    |> Array.filter (fun g ->
-        let game = 
-            g.Game.Split "," 
-            |> Array.map Int32.Parse 
-            |> Array.toList 
-            |> decodeKeyedGame gameDecoder
-            
-        let cardCount = game |> Game.Game.getAllTabs |> List.sumBy (Tableau.getVisible >> List.length)
-        
-        cardCount < 30 )
+    File.ReadAllLines file   
+    |> log "Loaded file"
+    |> Array.take 3000
+    |> Array.mapi sequenceDataColumn
+    |> Async.Parallel
+    |> Async.RunSynchronously
+    |> log "Converted to policy"
     |> formatPolicyData
-    |> savePolicy
+    |> log "Saving"
+    |> fun (oversampleCount, map) -> 
+        let writer = getPolicyStreamWriter() 
+        writer, oversampleCount, map
+    |> fun (writer: StreamWriter, oversampleCount, map) -> 
+        map |> Array.iter (fun (m, ms) ->  
+            printfn "Move: %A" m
+            ms |> appendPolicy writer oversampleCount outputFormat )
+        writer.Flush()
+        writer.Close()
 
 let readAndFormatValue file = 
 
-    File.ReadAllLines file 
+    File.ReadAllLines file
+    |> Array.take 3000
     |> Array.mapi sequenceDataValue
     |> filterDuplicateGamesStateRewards
     |> Array.map (fun (g,value) -> 
-        sprintf "%s,%s" g (Brain.shortGameAdjusted g), value )
+        sprintf "%s,%s" g (shortGamePlusOne 0 g), value )
     // |> (fun x -> Array.shuffle x; x)
     // |> Array.truncate 2000 // random fast training. 
 
@@ -500,6 +700,8 @@ let readAndFormatValidMoves file =
 
     File.ReadAllLines file 
     |> Array.mapi sequenceDataPolicy
+    |> Async.Parallel
+    |> Async.RunSynchronously
     |> Array.groupBy (fun x -> x.Game)
     |> Array.map (fun g -> 
 
@@ -507,7 +709,7 @@ let readAndFormatValidMoves file =
             (fst g).Split "," 
             |> Array.map Int32.Parse 
             |> Array.toList 
-            |> decodeKeyedGame gameDecoder
+            |> decodeKeyedGame cardEncoder
 
         let mutliLabelMoves = 
             game
@@ -563,6 +765,8 @@ let readAndFormatRun file =
 
     File.ReadAllLines file 
     |> Array.mapi sequenceDataPolicy
+    |> Async.Parallel
+    |> Async.RunSynchronously
     |> Array.collect (fun x -> x.Game.Split "," |> Array.take (96 * 10) |> Array.chunkBySize 96)
     |> Array.map (fun x -> 
         let rec count acc xs = 
@@ -585,4 +789,4 @@ let readAndFormatRun file =
         
         )
     |> oversample
-    |> saveValidRunCount    
+    |> saveValidRunCount

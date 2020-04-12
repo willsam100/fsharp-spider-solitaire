@@ -3,24 +3,39 @@ open System.IO
 open System
 open System.Text
 open System.Diagnostics
+open SpiderSolitare.Brain
+open SpiderSolitare.MonteCarloTreeSearch
 
 type Msg = 
     // | WritePolicy of isWin:bool * gameNumber:int * (int * string * int) list
     // | WriteValue of isWin:bool * gameNumber:int * (int * string) list
     | WritePolicyReply of isWin:bool * gameNumber:int * (int * string * int) list * AsyncReplyChannel<unit>
     | WriteValueReply of isWin:bool * gameNumber:int * (int * string) list * AsyncReplyChannel<unit>
+    | WriteQLearningReply of isWin:bool * (string * int * string) list * AsyncReplyChannel<unit>
     | Finish of AsyncReplyChannel<unit>
 
 type MgsP = 
     | Input of (int * Reformat.LegacyFile [])
     | FinishP of AsyncReplyChannel<unit>
 
-type Saver(policyFile:string, valueFile:string) = 
+type Saver(policyFile:string, valueFile:string, qlearnFile:string option) = 
 
     let writeFilePolicyFileBuilder (writer:StreamWriter) gameNumber isWin history = 
         history 
         |> List.iter (fun (moveOrder:int, game:string, move:int) -> 
             sprintf "%d,%s,%d,%d,%d" moveOrder game move gameNumber history.Length |> writer.WriteLine ) 
+
+    let writeEpisodeQLearning (writer:StreamWriter) _ history = 
+        history 
+        |> List.mapi (fun i (x,y,z) -> 
+            let isLast = history |> List.tryLast |> Option.get = (x,y,z)
+            i, isLast, x,y,z )
+
+        |> List.collect (fun (i, isLast, game, move, nextGame) ->  Reformat.permuteColumns (game, move, nextGame) |> List.map (fun (x,y,z) -> i, isLast, x,y,z) )
+        |> List.iter (fun (i, isLast, game:string, move:int, nextGame:string) -> 
+            let reward = Math.Pow(0.9, float i) * (gameDecoded 26 game |> reward)
+            let isDone = if isLast then 1. else 0.
+            sprintf "%d,%f,%.1f,%s,%s" move (reward) isDone ( game) ( nextGame)|> writer.WriteLine ) 
 
     let writeFileValueFileBuilder (writer:StreamWriter) isWin gameNumber history = 
 
@@ -53,21 +68,17 @@ type Saver(policyFile:string, valueFile:string) =
                     valueBuilder.Close() 
                     rc.Reply()
 
+                | WriteQLearningReply (isWin, history, rc) -> 
+                    qlearnFile |> Option.iter (fun qlearnFile ->
+                        let qLearningBuilder = new StreamWriter(new FileStream(qlearnFile, FileMode.Append))
+                        writeEpisodeQLearning qLearningBuilder isWin history; 
+                        qLearningBuilder.Flush()
+                        qLearningBuilder.Close() 
+                    )
+                    rc.Reply()
+
                 | Finish rc ->  
-                    // policyBuilder.Flush()
-                    // valueBuilder.Flush()
-
-                    // policyBuilder.Close()
-                    // valueBuilder.Close()
-
-                    rc.Reply ()
-
-                // let counter = 
-                //     if counter <= 0 then 
-                //         policyBuilder.Flush()
-                //         valueBuilder.Flush()
-                //         2
-                //     else counter         
+                    rc.Reply () 
 
                 return! loop () // (policyBuilder,valueBuilder, counter - 1)
             }
@@ -98,29 +109,10 @@ type Saver(policyFile:string, valueFile:string) =
     //     loop (new StreamWriter(new FileStream(policyFile, FileMode.Append)), new StreamWriter(new FileStream(valueFile, FileMode.Append)) ))
 
     member this.SaveGameMoves isWin gameNumber history =  
-
-
-        // let s = Stopwatch()
-        // s.Restart()
-
-        // let policyBuilder = new StreamWriter(new FileStream(policyFile, FileMode.Append))
-        // let valueBuilder = new StreamWriter(new FileStream(valueFile, FileMode.Append))
-
-        // writeFilePolicyFileBuilder policyBuilder gameNumber isWin (List.rev history)
-        // writeFileValueFileBuilder valueBuilder isWin gameNumber (history |> List.rev |> List.map (fun (moveOrder, game,_) -> moveOrder, game))
-
-        // policyBuilder.Flush()
-        // valueBuilder.Flush()
-
-        // policyBuilder.Close()
-        // valueBuilder.Close()        
-
-        // printfn "%A" s.Elapsed
-
-        // let r = Random()
-        // if r.NextDouble() < 0.5 then // 1 in 8
-        mb.PostAndReply (fun rc -> WritePolicyReply (isWin, gameNumber, List.rev history, rc))
-        mb.PostAndReply (fun rc -> WriteValueReply (isWin, gameNumber, history |> List.rev |> List.map (fun (moveOrder, game,_) -> moveOrder, game), rc))       
+        // if isWin then 
+        //     mb.PostAndReply (fun rc -> WritePolicyReply (isWin, gameNumber, List.rev history, rc))
+        // mb.PostAndReply (fun rc -> WriteValueReply (isWin, gameNumber, history |> List.rev |> List.map (fun (moveOrder, game,_) -> moveOrder, game), rc))       
+        mb.PostAndReply (fun rc -> WriteQLearningReply (isWin, history |> List.rev |> List.map (fun (_, currentGame, nextGame,move) -> currentGame, nextGame, move), rc))       
         // else 
             // mb.Post (WritePolicy (isWin, gameNumber, List.rev history))
             // mb.Post (WriteValue (isWin, gameNumber, ))  

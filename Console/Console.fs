@@ -6,12 +6,14 @@ open System.IO
 open System.Runtime
 open Persisance
 open Brain
+open ImageMagick
 open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Game
 open System.Diagnostics
+open System.Drawing
 
 type ISaver = 
-    abstract member SaveGameMoves: bool ->  int -> (int * string * int) list -> unit
+    abstract member SaveGameMoves: bool ->  int -> (int * string * int * string) list -> unit
     abstract member Finish: unit -> unit
     abstract member Format: unit -> unit
 
@@ -22,14 +24,117 @@ type RunConfig = {
     RandomMoveThreshold: float
 }
 
-let run log (saver: ISaver) parallelCount config gameNumbers = 
-    let moveEncoder = Representation.ActionEncoder()
+let showMnist (imageData: byte array array) =
 
-    let updateHistory game move history = 
+    use image = new MagickImage(MagickColor.FromRgb(byte 0, byte  0, byte  0), 28, 28)            
+
+    image.Grayscale()
+
+    image.GetPixels() |> Seq.iter (fun pixel -> 
+        let b = imageData.[pixel.Y].[pixel.X]
+        pixel.Set([| b |] ) )
+
+    image.Write("/Users/willsam100/Desktop/image.png")
+
+    // use image = new MagickImage(MagickColor.FromRgb(byte 255, byte  45, byte  0), 10, 6)
+    
+    // image.GetPixels() |> Seq.iter (fun x -> x.Set([| byte 42; byte 45; byte 0   |]) )
+
+    // image.Write("/Users/willsam100/Desktop/image.png")
+    
+    let startInfo = ProcessStartInfo("open")
+    startInfo.RedirectStandardInput <- true
+    startInfo.RedirectStandardOutput <- true
+    startInfo.UseShellExecute <- false
+    startInfo.Arguments <- "/Users/willsam100/Desktop/image.png"
+    startInfo.WindowStyle <- ProcessWindowStyle.Hidden
+    Process.Start(startInfo) |> ignore
+
+let parse skip data = 
+    data |> Array.skip skip |> Array.take 4 |> Array.rev |> fun x -> BitConverter.ToInt32(x, 0)
+
+let parseIdxData name data = 
+    let magic = parse 0 data
+    let images = parse 4 data
+    let rows = parse 8 data
+    let columns = parse 12 data
+    printfn "name:%s -> %d %d %d %d" name magic images rows columns
+
+    data 
+    |> Array.skip 16
+    |> Array.chunkBySize (rows * columns)
+    |> Array.map (Array.chunkBySize rows)
+
+let train network load epochs = 
+
+    let args = 
+        if load = "reload" then 
+            sprintf "%s reload" epochs
+        else 
+            epochs
+
+    let file = 
+        match network with 
+        | "v"
+        | "value" -> "/Users/willsam100/projects/plaidML/train-value.sh"
+        | "p"
+        | "policy" -> "/Users/willsam100/projects/plaidML/train-policy.sh"
+        | "m"
+        | "mnist" -> "/Users/willsam100/projects/plaidML/mnist-value-net.sh"
+        | "q"
+        | "qlearn" -> "/Users/willsam100/projects/plaidML/q-learn-spider.sh"
+        | x -> failwithf "Invalid network to train: %s" x
+
+    printfn "Training..."
+    let train = new Process()
+    train.StartInfo.FileName <- file
+    train.StartInfo.Arguments <- args
+    train.Start() |> ignore
+    train
+
+type QLearner(qLearning, qlearningBk) = 
+    let mutable p: Process = null
+
+    member this.WaitForTraingingToStart() = 
+        while File.Exists qLearning do 
+            printfn "Waiting for training to start..."
+            System.Threading.Thread.Sleep (TimeSpan.FromSeconds 5.)
+
+    member this.CanStartTraining() = 
+        if isNull p |> not then false 
+        else 
+            match File.Exists qLearning with 
+            | true -> true
+            | false -> 
+                match File.Exists qlearningBk with 
+                | true -> 
+                    File.Move(qlearningBk, qLearning)
+                    true
+                | false -> false            
+
+    member this.Learn() = 
+        if isNull p || p.HasExited then 
+            p <- train "q" "" ""
+        else 
+            this.StopTraining()
+            printfn "Waiting for training to complete..."
+            p.WaitForExit()
+            p <- train "q" "" ""
+
+    member this.StopTraining() = 
+        File.Delete qlearningBk
+
+
+let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNumbers = 
+    if not log && qlearner.CanStartTraining() then 
+        qlearner.Learn()
+
+    let updateHistory parentGame game move history = 
         let gameAndBestMove = 
             (List.length history + 1), 
-            (game |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat ","), 
-            (moveEncoder.Encode move |> encodeMove)
+            (parentGame  |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock), 
+            (moveEncoder.Encode move |> encodeMove),
+            (game |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock)
         gameAndBestMove :: history
 
 //    let rec printTree depth (node: MonteCarloTreeSearch.Node) = 
@@ -56,12 +161,18 @@ let run log (saver: ISaver) parallelCount config gameNumbers =
         range 
         |> List.map (fun x -> 
             match MctsSpiderGameLoop.playGame log config.RandomMoveThreshold brainsMover updateHistory config.MctsIterationCount config.MoveCount x with 
-            | isWin, gameNumber, game, movesMade, history -> 
+            | isWin, gameNumber, game, movesMade, history, progress -> 
 
                 brainsMover.Flush()
 
                 printfn "%A" game
-                printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f\n" gameNumber (if isWin then "WIN" else "LOST") movesMade
+                printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f" gameNumber (if isWin then "WIN" else "LOST") movesMade
+                if List.isEmpty progress then 
+                    printfn "No progres"
+                else                 
+                    progress |> List.map (fun x -> sprintf "%.2f" x) |> String.concat "," |> printfn "%s"
+
+                printfn ""                
 
                 // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
                 if history |> List.isEmpty |> not then 
@@ -74,28 +185,46 @@ let run log (saver: ISaver) parallelCount config gameNumbers =
 
     let results = 
         gameNumbers
+        |> List.toArray
+        |> fun x -> Array.shuffle x; x
+        |> Array.toList
+        |> List.take parallelCount        
         |> List.splitInto parallelCount
         |> List.mapi (fun i x -> 5100 + i * 2, x)
         |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
         |> List.toArray    
         |> Task.WhenAll    
         |> Async.AwaitTask
+        |> Async.Catch
         |> Async.RunSynchronously
-        |> Array.collect List.toArray
+        |> function 
+        | Choice1Of2 xs -> xs |> Array.collect List.toArray
+        | Choice2Of2 e -> 
+            raise e
 
     let winningRate: float = (results |> Array.filter snd |> Array.length |> float) / (List.length gameNumbers |> float)
     printfn "WINING RATE: %.2f" winningRate
     printfn "Games lost: %s" (results |> Array.filter (snd >> not) |> Array.map (fst >> string) |> String.concat ",")
 
     saver.Finish()
-    saver.Format()
 
+    if config.LoopCount > 0 then 
+        printfn "Training policy"
+        qlearner.Learn()
+        qlearner.WaitForTraingingToStart()
+
+        printfn "Running policy: %d" config.LoopCount
+        run qlearner log (saver: ISaver) parallelCount {config with LoopCount = config.LoopCount - 1} gameNumbers
+    else 
+        qlearner.StopTraining()
 
 [<EntryPoint>]
 let main argv =
-    let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw.csv"
+    let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw-old.csv"
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
-
+    let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
+    let qLearningBk = "/Users/willsam100/Desktop/spider-policy-net-train-bk.csv"
+    let qlearner = QLearner(qLearning, qLearningBk)
 
     match argv with 
     | [| "format-policy" |] -> Reformat.readAndFormatPolicy policyRaw
@@ -115,7 +244,7 @@ let main argv =
         if File.Exists valueRaw then 
             File.Delete (valueRaw)
 
-        let s = Saver(policyRaw, valueRaw)
+        let s = Saver(policyRaw, valueRaw, None)
     
         "/Users/willsam100/Desktop/spider-game-with-failure.csv"
         |> File.ReadAllLines
@@ -132,8 +261,8 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = 2000
-            MoveCount = 5000
+            MctsIterationCount = 200
+            MoveCount = 50
             LoopCount = 0
             RandomMoveThreshold = 1.0
         }
@@ -144,31 +273,31 @@ let main argv =
                 member this.Finish() = ()
                 member this.Format() = () }
 
-        run true saver parallelCount config gameNumbers
+        run qlearner true saver parallelCount config gameNumbers
 
 
     | [| "generate" |] -> 
 
         Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
-        let gameNumbers = List.replicate 50 [ 1 ] |> List.concat
+        let gameNumbers = List.replicate 1 [ 1 .. 10000 ] |> List.concat
         let log = false
-        let parallelCount = 8
+        let parallelCount = 7
         let config = {
-            MctsIterationCount = 5000
-            LoopCount = 0
-            MoveCount = 10
+            MctsIterationCount = 50
+            LoopCount = 20
+            MoveCount = 200
             RandomMoveThreshold = 0.9
         }
 
         let saver = 
-            let s = Saver(policyRaw, valueRaw)
+            let s = Saver(policyRaw, valueRaw, Some qLearning)
             { new ISaver with 
                 member ths.SaveGameMoves isWin gameNumber history = s.SaveGameMoves isWin gameNumber history
                 member this.Finish() = s.Finish()
                 member this.Format() = s.Format() }
-
-        run log saver parallelCount config gameNumbers
+        
+        run qlearner log saver parallelCount config gameNumbers
 
         // if not log then 
         //     printfn "Training..."
@@ -176,30 +305,153 @@ let main argv =
         //     train.WaitForExit()        
 
     | [| "train"; network; epochs; load |] -> 
+        let p = train network load epochs
+        p.WaitForExit()
 
-        let args = 
-            if load = "reload" then 
-                sprintf "%s reload" epochs
-            else 
-                epochs
+    | [| "image"; |] -> 
+        use image = new MagickImage(MagickColor.FromRgb(byte 255, byte  45, byte  0), 10, 6)
+        
+        image.GetPixels() |> Seq.iter (fun x -> x.Set([| byte 42; byte 45; byte 0   |]) )
 
-        let file = 
-            match network with 
-            | "v"
-            | "value" -> "/Users/willsam100/projects/plaidML/train-value.sh"
-            | "p"
-            | "policy" -> "/Users/willsam100/projects/plaidML/train-policy.sh"
-            | x -> failwithf "Invalid network to train: %s" x
+        image.Write("/Users/willsam100/Desktop/image.png")
+        
+        let startInfo = ProcessStartInfo("open")
+        startInfo.RedirectStandardInput <- true
+        startInfo.RedirectStandardOutput <- true
+        startInfo.UseShellExecute <- false
+        startInfo.Arguments <- "/Users/willsam100/Desktop/image.png"
+        startInfo.WindowStyle <- ProcessWindowStyle.Hidden
+        Process.Start(startInfo) |> ignore
 
-        printfn "Training..."
-        let train = new Process()
-        train.StartInfo.FileName <- file
-        train.StartInfo.Arguments <- args
-        train.Start() |> ignore
-        train.WaitForExit()
 
-        ()
+    | [| "mnist-play"; r |] -> 
 
+        let mnistTrainingData = File.ReadAllBytes "/Users/willsam100/Downloads/train-images-idx3-ubyte"
+        let imageData = parseIdxData "trainging data" mnistTrainingData 
+
+        let r = Random(int r)
+
+        let port = 5100
+
+        let b = BrainMoverServer(port)
+        b.StartServer()
+        try 
+            ()
+
+            let client = BrainsMoverClient(port) :> IBransMover
+
+            let image = 
+                imageData
+                |> Array.skip (r.Next(0, 10000))
+                |> Array.head
+
+            showMnist image
+
+            let image =
+                image
+                |> Array.concat
+                |> Array.map (int >> string)
+                |> String.concat ","
+
+            printfn "Image:\n%s" image
+
+            let cnnView = client.GetMnist image
+
+            // select height row
+            // then select column
+            // then select which image
+
+            cnnView.ProbsOne
+            |> List.splitInto cnnView.ProbsOneW
+            |> List.map (List.splitInto cnnView.ProbsOneH)
+            |> Visulization.createMnistImage "one" cnnView.ProbsOneC cnnView.ProbsOneH cnnView.ProbsOneW
+
+            cnnView.ProbsTwo
+            |> List.splitInto cnnView.ProbsTwoH
+            |> List.map (List.splitInto cnnView.ProbsTwoH)
+            |> Visulization.createMnistImage "two" cnnView.ProbsTwoC cnnView.ProbsTwoH cnnView.ProbsTwoH
+
+            cnnView.ProbsThree
+            |> List.splitInto cnnView.ProbsThreeH
+            |> List.map (List.splitInto cnnView.ProbsThreeH)
+            |> Visulization.createMnistImage "three" cnnView.ProbsThreeC cnnView.ProbsThreeH cnnView.ProbsThreeH
+
+            cnnView.ProbsFour
+            |> List.splitInto cnnView.ProbsFourH
+            |> List.map (List.splitInto cnnView.ProbsFourH)
+            |> Visulization.createMnistImage "five" cnnView.ProbsFourC cnnView.ProbsFourH cnnView.ProbsFourH
+
+            cnnView.ProbsFive
+            |> List.splitInto cnnView.ProbsFiveH
+            |> List.map (List.splitInto cnnView.ProbsFiveH)
+            |> Visulization.createMnistImage "fove" cnnView.ProbsFiveC cnnView.ProbsFiveH cnnView.ProbsFiveH            
+
+        finally
+            b.Stop()
+        () 
+
+
+
+    | [| "mnist"; |] -> 
+
+        let parseIdxLabel name data = 
+            let magic = parse 0 data
+            let images = parse 4 data
+            printfn "name:%s -> %d %d" name magic images
+
+            data |> Array.skip 8
+
+        let mnistTrainingData = File.ReadAllBytes "/Users/willsam100/Downloads/train-images-idx3-ubyte"
+        let mnistLabelData = File.ReadAllBytes "/Users/willsam100/Downloads/train-labels-idx1-ubyte"
+
+        let imageData = parseIdxData "trainging data" mnistTrainingData 
+        let labelData = parseIdxLabel "label data" mnistLabelData
+
+        printfn "%d %d" imageData.Length labelData.Length
+        let data = Array.zip imageData labelData
+
+
+        let outputFile = "/Users/willsam100/Desktop/mnist-value-net.csv"
+
+        data 
+        |> Array.take 42
+        |> Array.map (fun (x,v) -> 
+
+            let s = x |> Array.map (fun y -> string y.Length) |> String.concat ","
+            printfn "%d: %s %d" x.Length s v
+
+            let pixelData = x |> Array.concat |> Array.map (int >> string) |> String.concat ","
+
+            sprintf "%s,%s"  pixelData (v |> int |> string)
+        )
+        |> fun xs -> File.WriteAllLines (outputFile, xs)
+
+
+        // use image = new MagickImage(MagickColor.FromRgb(byte 0, byte  0, byte  0), 28, 28)            
+
+        // image.Grayscale()
+
+        // image.GetPixels() |> Seq.iter (fun pixel -> 
+        //     let b = imageData.[pixel.Y].[pixel.X]
+        //     pixel.Set([| b |] ) )
+
+        // image.Write("/Users/willsam100/Desktop/image.png")
+
+        // // use image = new MagickImage(MagickColor.FromRgb(byte 255, byte  45, byte  0), 10, 6)
+        
+        // // image.GetPixels() |> Seq.iter (fun x -> x.Set([| byte 42; byte 45; byte 0   |]) )
+
+        // // image.Write("/Users/willsam100/Desktop/image.png")
+        
+        // let startInfo = ProcessStartInfo("open")
+        // startInfo.RedirectStandardInput <- true
+        // startInfo.RedirectStandardOutput <- true
+        // startInfo.UseShellExecute <- false
+        // startInfo.Arguments <- "/Users/willsam100/Desktop/image.png"
+        // startInfo.WindowStyle <- ProcessWindowStyle.Hidden
+        // Process.Start(startInfo) |> ignore
+        
+        
     | _ -> 
         printfn "Bad option. Read the code for help :)"
     0 // return an integer exit code

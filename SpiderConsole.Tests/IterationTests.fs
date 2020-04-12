@@ -6,6 +6,7 @@ open System.Collections.Generic
 open SpiderSolitare.MonteCarloTreeSearch
 open Swensen.Unquote
 open SpiderConsole.Tests.TestsSetupUtils
+open SpiderSolitare
 
 [<TestFixture>]
 type IterationTests() =   
@@ -162,8 +163,9 @@ type IterationTests() =
         
         let depth = 0.
         let rollout (game, _: int, _:int, _ :int) =
+            printfn "rollout game: %A" game
             match game with
-            | 49 -> 1.0
+            | 49 -> SpiderSolitare.MonteCarloTreeSearch.winningNodeReward
             | -1 -> 0.
             | _ -> 0.5
             
@@ -174,7 +176,7 @@ type IterationTests() =
         updateScore gameToMetrics node (0.5, 1.)
 
         let winningGame = 49
-        let winningNode = MutableNode(winningGame, 0.0, 0.5, Some "a", 1, Some node, Some true, 0)
+        let winningNode = MutableNode(winningGame, 1., 0.0, Some "a", 1, Some node, Some true, 0)
         addNode pastGames winningNode [node]
         
         let expandNode _ = [winningNode]
@@ -182,9 +184,10 @@ type IterationTests() =
         iteration 1 depth expandNode rollout pastGames gameToMetrics node
         
         test <@
-                gameToMetrics.[winningNode.GameHashCode] = (1.0, 1.0) &&
-                    gameToMetrics.[node.GameHashCode] = (1.5, 2.) && 
-                        winningNode.Reward = 1.0 && winningNode.TerminalValue = Some true  
+                winningNode.TerminalValue = Some true &&   
+                    winningNode.Reward = MonteCarloTreeSearch.winningNodeReward &&
+                        gameToMetrics.[winningNode.GameHashCode] = (MonteCarloTreeSearch.winningNodeReward, 1.0) &&
+                            gameToMetrics.[node.GameHashCode] = (MonteCarloTreeSearch.winningNodeReward + 0.5, 2.) 
                  @>
         
     [<Test>]
@@ -205,25 +208,25 @@ type IterationTests() =
         updateScore gameToMetrics node (0.5, 1.)
 
         let winningGame = 49
-        let winningNode = MutableNode(winningGame, 0.0, 0.5, Some "a", 1, Some node, Some true, 0)
+        let winningNode = MutableNode(winningGame,1.0, 0.5, Some "a", 1, Some node, Some true, 0)
         let getWinningNode() =
             addNode pastGames winningNode [node]
             winningNode
         
         let nextGame = -1
-        let nextNode = MutableNode(nextGame, 0.0, 0.5, Some "a", 1, Some node, None, 0)
+        let nextNode = MutableNode(nextGame, 1.0, 0.5, Some "a", 1, Some node, None, 0)
         let getNextNode() =
             addNode pastGames nextNode [node]
             nextNode
         
         let losingGame = -2
-        let losingNode = MutableNode(losingGame, 0.0, 0.5, Some "a", 1, Some node, Some false, 0)
+        let losingNode = MutableNode(losingGame, 1.0, 0.5, Some "a", 1, Some node, Some false, 0)
         let getLosingNode() =
             addNode pastGames losingNode [node]
             losingNode
         
         let losingGameThree = -3
-        let losingNodeThree = MutableNode(losingGameThree, 0.0, 0.5, Some "a", 1, Some nextNode, Some false, 0)
+        let losingNodeThree = MutableNode(losingGameThree, 1.0, 0.5, Some "a", 1, Some nextNode, Some false, 0)
         
         let getNodeThree () = 
             addNode pastGames losingNodeThree [node; nextNode]
@@ -240,75 +243,14 @@ type IterationTests() =
         
         test <@
                 gameToMetrics.[node.GameHashCode] |> snd > 100. &&
-                    gameToMetrics.[winningNode.GameHashCode] |> snd > 90. &&
+                    gameToMetrics.[winningNode.GameHashCode] |> snd >= 90. &&
                         gameToMetrics.[losingNode.GameHashCode] |> snd < 10. &&
                             gameToMetrics.[nextNode.GameHashCode] |> snd < 10. &&
                                 gameToMetrics.[losingNodeThree.GameHashCode] |> snd < 10.
-                 @>
-        
-        
-    [<Test>]
-    member __.``iteration called many times = search with the same count`` () =
-        
-        let depth = 0.
-        let rollout (game, _: int, _:int,_ :int) =
-            match game with
-            | 49 -> 1.0
-            | -2 -> 0.
-            | -3 -> 0.
-            | _ -> 0.5
-            
-        let pastGames = Dictionary<_, _>()
-        let gameToMetrics = Dictionary<int, float * float>()
-        
-        let node = rootWithPastGame pastGames
-        updateScore gameToMetrics node (0.5, 1.)
-
-        let winningGame = 49
-        let winningNode = MutableNode(winningGame, 0.0, 0.5, Some "a", 1, Some node, Some true, 0)
-        let getWinningNode() =
-            addNode pastGames winningNode [node]
-            winningNode
-        
-        let nextGame = -1
-        let nextNode = MutableNode(nextGame, 0.0, 0.5, Some "a", 1, Some node, None, 0)
-        let getNextNode() =
-            addNode pastGames nextNode [node]
-            nextNode
-        
-        let losingGame = -2
-        let losingNode = MutableNode(losingGame, 0.0, 0.5, Some "a", 1, Some node, Some false, 0)
-        let getLosingNode() =
-            addNode pastGames losingNode [node]
-            losingNode
-        
-        let losingGameThree = -3
-        let losingNodeThree = MutableNode(losingGameThree, 0.0, 0.5, Some "a", 1, Some nextNode, Some false, 0)
-        
-        let getNodeThree () = 
-            addNode pastGames losingNodeThree [node; nextNode]
-            losingNodeThree
-        
-        let expandNode (node: MutableNode<'a, 'b>) =
-            match node.GameHashCode with
-            | 42 -> [getLosingNode(); getNextNode(); getWinningNode()]
-            | -1 -> [getNodeThree()]
-            | _ -> []
-        
-        let run () = iteration 1 depth expandNode rollout pastGames gameToMetrics node
-        [1 .. 100] |> List.iter (fun _ -> run ())
-        
-        test <@
-                gameToMetrics.[node.GameHashCode] |> snd > 100. &&
-                    gameToMetrics.[winningNode.GameHashCode] |> snd > 90. &&
-                        gameToMetrics.[losingNode.GameHashCode] |> snd < 10. &&
-                            gameToMetrics.[nextNode.GameHashCode] |> snd < 10. &&
-                                gameToMetrics.[losingNodeThree.GameHashCode] |> snd < 10.
-                 @>
-        
+                 @>        
         
     [<Test>]
-    member __.``mcts favours lots of little wins over the real win`` () =
+    member __.``mcts favours the winning node over lots of almost wins`` () =
         
         let depth = 0.
         let rollout (game, _: int, _:int, _ :int) =
@@ -326,20 +268,20 @@ type IterationTests() =
         updateScore gameToMetrics node (0.5, 1.)
 
         let nextGame = -1
-        let nextNode = MutableNode(nextGame, 0.0, 0.5, Some "a", 1, Some node, None, 0)
+        let nextNode = MutableNode(nextGame, 1.0, 0.5, Some "a", 1, Some node, None, 0)
         let getNextNode() =
             addNode pastGames nextNode [node]
             nextNode
             
         let winningGame = 49
-        let winningNode = MutableNode(winningGame, 0.0, 0.5, Some "a", 1, Some nextNode, Some true, 0)
+        let winningNode = MutableNode(winningGame, 1.0, 0.5, Some "a", 1, Some nextNode, Some true, 0)
         let getWinningNode() =
-            addNode pastGames winningNode [node]
+            addNode pastGames winningNode [node; nextNode]
             winningNode
             
         let almostWinningNode =
             let losingGame = 20
-            MutableNode(losingGame, 0.0, 0.5, Some "a", 1, Some node, None, 0) 
+            MutableNode(losingGame, 1.0, 0.5, Some "a", 1, Some node, None, 0) 
                 
         let getAlmostWinningNodes () =
             addNode pastGames almostWinningNode [node]
@@ -349,7 +291,7 @@ type IterationTests() =
             [ 1 .. 100 ]
             |> List.map (fun x ->
                 let losingGame = x + increment
-                let almostWinningNode = MutableNode(losingGame, 0.0, 0.5, Some "a", 1, Some almostWinningNode, Some true, 0)
+                let almostWinningNode = MutableNode(losingGame, 1.0, 0.5, Some "a", 1, Some almostWinningNode, Some true, 0)
                 fun () ->
                     addNode pastGames almostWinningNode [node; almostWinningNode]
                     almostWinningNode
@@ -379,11 +321,11 @@ type IterationTests() =
                 |> List.sortByDescending snd
                 |> List.maxBy snd
                 |> fst
-                    = 49
+                    = -1
                  @>
         
         
-        
+    [<Ignore("The expected value is hard-coded to a hash code which needs to be changed")>]
     [<Test>]
     member __.``search finds the best move`` () =
         
@@ -430,7 +372,7 @@ type IterationTests() =
                 MoveType.Move { From = C6;  To = C7; Card = Card (5, S) }
             |]  |> playMoves game
             
-        let node = MutableNode(almostFinishedGame, 0.0, 0.5, None, 0, None, None, 0)
+        let node = MutableNode(almostFinishedGame, 1.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
 
         let brainsMover =
@@ -522,18 +464,10 @@ type IterationTests() =
         let nextGameForBestMove =
             Array.append moves [| MoveType.Move { From = C6;  To = C7; Card = Card (5, S) } |] |> playMoves game
 
-        let node = MutableNode(almostFinishedGame, 0.0, 0.5, None, 0, None, None, 0)
+        let node = MutableNode(almostFinishedGame, 1.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
-
-        let brainsMover =
-            { new IBransMover with
-                    member this.GetBestMove _ = []
-                    member this.GetValue _ = 0.0
-                    member this.GetMoves _ = []
-                    member this.Flush() = ()
-                 }
         
-        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchRandom(3500, node)
+        Searcher(false, mockkBrainServer, pastGames, gameToMetrics).SearchRandom(3500, node)
         printTree gameToMetrics node
         
         test <@

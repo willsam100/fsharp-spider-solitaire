@@ -7,6 +7,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console", "Console\Console.
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console.Tests", "Console.Tests\Console.Tests.fsproj", "{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Analytics", "Analytics\Analytics.fsproj", "{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,5 +43,9 @@ Global
 		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DD7EA119-8B8F-4F80-9843-5BBE7AD0272C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

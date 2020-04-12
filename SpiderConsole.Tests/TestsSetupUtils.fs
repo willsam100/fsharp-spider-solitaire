@@ -19,7 +19,7 @@ let getContinueGame = function
 let createGame r = GameMover.startGame deck r |> getContinueGame
         
 let rootWithPastGame (pastGames: Dictionary<int, int Set>) =
-    let node = MutableNode(42, 0.0, 0.01,  None, 0, None, None, 0)
+    let node = MutableNode(42, 1.0, 0.01,  None, 0, None, None, 0)
     pastGames.[node.GameHashCode] <- Set.empty
     node
     
@@ -103,7 +103,6 @@ let mockkBrainServer =
             member this.GetMoves _ = []
             member this.Flush() = ()
          }
-    
     
 let playGame gameToMetrics iterationCount totalCount game search =
     

@@ -8,7 +8,6 @@ open System
 open SpiderSolitare
 open Newtonsoft.Json
 open SpiderSolitare.MonteCarloTreeSearch
-open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Representation
 
 type Request = {
@@ -25,12 +24,17 @@ type ResponseValue = {
     Value: float
 }
 
+type LongestColumn = {
+    Columns:int list
+    Probs: float list
+}
+
+
 type ResponseMoves = {
     Moves: float list
 }
 
 let moveEncoder = Representation.ActionEncoder()
-let gameDecoder = CardEncoderKeyed()
 let allMoves = List.replicate 1171 0
 
 let timed name f = 
@@ -56,36 +60,108 @@ let mutliLabelMoves (g:string) decodeKeyedGame =
 
     |> Array.map string 
     |> String.concat ","
-
-let shortGame (g:string) = 
-    g.Split "," 
-    |> Array.take (96 * 10)
-    |> Array.chunkBySize 96
-    |> Array.collect (Array.truncate 24)
-    |> String.concat ","
-
-let shortGameAdjusted (g: string) = 
-    g.Split "," 
-    |> Array.take (96 * 10)
-    |> Array.chunkBySize 96
-    |> Array.map (Array.truncate 24)
-    |> Array.collect (Array.tail)
-    |> String.concat ","
     
-let shortGamePlusOne (g: string) = 
-    g.Split "," 
-    |> Array.take (96 * 10)
-    |> Array.chunkBySize 96
-    |> Array.map (Array.truncate 24 >> Array.map Int32.Parse)
-    |> Array.collect (Array.map (fun x -> (if x = 14 then 1 else  x + 1) |> string))
+let singleEncoded (g:string) =
+    
+    let shortGame =
+        g.Split "," 
+        |> Array.take (96 * 10)
+        |> Array.chunkBySize 96
+        |> Array.collect (Array.truncate 13)
+    
+    [ 2 .. 14 ]
+    |> List.map (fun x ->
+        let card = string x
+        shortGame
+        |> Array.map (fun c -> if c = card then "1" else "0")
+        |> String.concat "," )
     |> String.concat ","
 
-let format (game:string) = 
+// let gamePlusOne increment (g: string) = 
+    
+//     let tabs = 
+//         g.Split "," 
+//         |> Array.splitInto 10
+
+//     if tabs |> Array.map Array.length |> Array.distinct |> Array.length <> 1 then
+//         printfn "%s" g
+//         failwith "Bad input, not all tabs are the same length"
+
+//     tabs
+//     |> Array.map (Array.map Int32.Parse)
+//     |> Array.collect (Array.map (fun x -> (if x >= 15 then 1 else x + increment) |> string))
+//     |> String.concat ","
+    
+let shortGamePlusOne increment (g: string) = 
+    g.Split "," 
+    |> Array.map Int32.Parse
+    |> Array.map (fun x -> (if x + increment >= 15 then 1 else x + increment) |> string)
+    |> String.concat ","
+
+let format96 (game:string) = 
     let game = game.Split ","
+
+    if game.Length <= (96 * 10) + 10 then 
+        game |> String.concat "," |> printfn "%s"
+        failwith "Game is too short"
+
     let tableau = game |> Array.take (96 * 10) |> String.concat ","
     let stock = game |> Array.skip (96 * 10) |> Array.truncate 10 |> String.concat ","
 
     sprintf "%s,%s" tableau stock
+
+let format13 (game:string) = 
+    let game = game.Split ","
+
+    if game.Length <= (96 * 10) + 10 then 
+        game |> String.concat "," |> printfn "%s"
+        failwith "Game is too short"
+
+    game 
+    |> Array.chunkBySize 96
+    |> Array.take 10
+    |> Array.collect (Array.truncate 13)
+    |> String.concat ","
+
+
+let format26Stock (game:string) = 
+    let game = game.Split ","
+
+    if game.Length <= (96 * 10) + 10 then 
+        game |> String.concat "," |> printfn "%s"
+        failwith "Game is too short"
+
+    let tableau = 
+        game 
+        |> Array.chunkBySize 96
+        |> Array.take 10
+        |> Array.collect (Array.truncate 26)
+        |> String.concat ","
+
+    let stock = 
+        game 
+        |> Array.skip (96 * 10) 
+        |> Array.truncate 10
+
+    let stock = 
+        let empty = Array.replicate (stock.Length - 26) "1"
+        Array.append stock empty |> String.concat ","
+
+    sprintf "%s,%s" tableau stock
+
+
+let formatExpand tabSize (game:string) =
+    let tabs = game.Split "," |> Array.chunkBySize tabSize
+    let fullTabs = tabs |> Array.collect (fun x ->  Array.replicate (96 - x.Length) "1" |> Array.append x )
+    Array.append fullTabs (game.Split "," |> Array.skip (tabSize * 10)) |> String.concat ","
+
+let gameDecoded tabSize (game: string) = 
+    game
+    |> formatExpand tabSize
+    |> fun x -> x.Split ","
+    |> Array.map Int32.Parse 
+    |> Array.toList
+    |> decodeKeyedGame cardEncoder
 
 // let format (game:string) = 
 //     let game = game.Split ","
@@ -231,13 +307,8 @@ type BrainsMoverClient(port) =
                 // if gamesPolicyNet.Count > 1000 then 
                 //     gamesPolicyNet.Clear()
 
-                let g = MonteCarloTreeSearch.encodeGame game 
-                let encoded = sprintf "%s,%s" (shortGame g) (shortGamePlusOne g)
-
-                let validMoves = 
-                    mutliLabelMoves g (decodeKeyedGame gameDecoder)
-
-                let r = continuation (encoded, validMoves)
+                let encoded = MonteCarloTreeSearch.encodeGame game |> format13
+                let r = continuation encoded
                 gamesPolicyNet.Add (game, r)
                 r
 
@@ -254,7 +325,6 @@ type BrainsMoverClient(port) =
         | true, v -> v
         | false, _ -> 
             try 
-
                 // State is not shared accross threads. 
                 // This results in duplicate data.
                 // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
@@ -264,11 +334,8 @@ type BrainsMoverClient(port) =
                 // if gamesValueNet.Count > 10000 then 
                 //     gamesValueNet.Clear()
 
-                let g = MonteCarloTreeSearch.encodeGame game |> format
-                let encoded = sprintf "%s,%s" g (shortGameAdjusted g)
+                let encoded = MonteCarloTreeSearch.encodeGame game |> format13
                 let v = continuation encoded
-
-
                 gamesValueNet.Add (game, v)
                 v
 
@@ -295,7 +362,7 @@ type BrainsMoverClient(port) =
                 // if gamesMovesNet.Count > 10000 then 
                 //     gamesMovesNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format
+                let encoded = MonteCarloTreeSearch.encodeGame game |> format96
                 let v = continuation encoded
                 gamesMovesNet.Add (game, v)
                 v
@@ -307,6 +374,29 @@ type BrainsMoverClient(port) =
                 printfn "%A" <| MonteCarloTreeSearch.encodeGame game
                 printfn "%s" <| e.ToString()
                 raise e                
+
+    let getColumnOfLongestRun game continuation = 
+        try 
+
+            // State is not shared accross threads. 
+            // This results in duplicate data.
+            // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
+            // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
+            // A full game does not have more than 500 moves, most of the time training is down to the first card deck
+            // which should be completed within 100 moves. 
+            // if gamesMovesNet.Count > 10000 then 
+            //     gamesMovesNet.Clear()
+            let encoded =  game |> MonteCarloTreeSearch.encodeGame  |> format13
+            continuation encoded
+
+        with 
+        | e -> 
+            printfn "Exception occured:"
+            printfn "%A" game
+            printfn "%A" <| MonteCarloTreeSearch.encodeGame game
+            printfn "%s" <| e.ToString()
+            raise e                
+
 
     let getMove move = 
         match moves.TryGetValue move with 
@@ -332,10 +422,9 @@ type BrainsMoverClient(port) =
         member this.GetBestMove(game:Game.Game) = 
 //            timed "policy" <| fun () -> 
                 getPolicy game
-                    (fun (encoded, validMoves) -> 
-                        let body = {Game = encoded; ValidMoves = validMoves} |> JsonConvert.SerializeObject
+                    (fun encoded -> 
+                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
                         let body = post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText
-//                        printfn "%s" body
                         let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
 
                         Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove x, y)
@@ -350,6 +439,46 @@ type BrainsMoverClient(port) =
                             post port (sprintf "http://localhost:%d/value" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponseValue>
                         responseValue.Value            
                     )
+
+        member this.GetColumnOfLongestRun game = 
+//            timed "value" <| fun () -> 
+                getColumnOfLongestRun game 
+                    (fun encoded -> 
+                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+                        let response = 
+                            post port (sprintf "http://localhost:%d/column" port) ["Content-Type", "application/json"]  body |> bodyText 
+                        let responseValue = response |> JsonConvert.DeserializeObject<LongestColumn>
+
+                        responseValue.Columns
+                        |> List.map (fun x -> Coord.parseColumn (x + 1))
+                        |> fun cs -> List.zip cs responseValue.Probs           
+                    )
+
+        member this.GetCnnView game = 
+//            timed "value" <| fun () -> 
+                getColumnOfLongestRun game 
+                    (fun encoded -> 
+                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+                        let response = 
+                            post port (sprintf "http://localhost:%d/columnview" port) ["Content-Type", "application/json"]  body |> bodyText 
+
+                        // printfn "%s" response
+
+                        let responseValue = response |> JsonConvert.DeserializeObject<CnnView>
+
+                        responseValue
+                    )
+
+        member this.GetMnist encoded = 
+//            timed "value" <| fun () -> 
+                let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+                let response = 
+                    post port (sprintf "http://localhost:%d/mnistview" port) ["Content-Type", "application/json"]  body |> bodyText 
+
+                // printfn "%s" response
+                let responseValue = response |> JsonConvert.DeserializeObject<MnistView>
+                responseValue
+
 
         member this.GetMoves game = 
             getMoves game 
@@ -366,8 +495,3 @@ type BrainsMoverClient(port) =
                     |> List.filter (fun (i,x) -> x > 0.5)
                     |> List.map (fst >> toOneHot >>  moveEncoder.Decode)
                 ) 
-
-               
-
-
-

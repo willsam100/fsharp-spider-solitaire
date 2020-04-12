@@ -2,10 +2,13 @@ namespace SpiderConsole.Tests.RewardTests
 
 open System
 open NUnit.Framework
+open SpiderConsole.Tests
 open SpiderSolitare.Game
 open SpiderSolitare.MonteCarloTreeSearch
 open Swensen.Unquote
     
+    
+[<TestFixture>]
 type RewardTests() = 
         
     [<Test>]
@@ -14,7 +17,7 @@ type RewardTests() =
         
         let r = Random(42)
         let deck = CardModule.deck OneSuit |> List.take 13
-        let game = GameMover.createValidGame deck r |> GameMover.unHideGame
+        let game = TestsSetupUtils.createGameSingleDeck r deck |> GameMover.unHideGame
         
         let rec loop depth (nodes: (int * MoveType * Game) list) (node: Game) =
             if depth >= 25 then
@@ -456,7 +459,7 @@ type RewardTests() =
     
         let r = Random(42)
         let deck = CardModule.deck OneSuit |> List.take 13
-        let game = GameMover.createValidGame deck r |> GameMover.unHideGame
+        let game = TestsSetupUtils.createGameSingleDeck r deck |> GameMover.unHideGame
         
         let rec loop acc gameMoves = 
             gameMoves
@@ -514,7 +517,7 @@ type RewardTests() =
         
         let r = Random(42)
         let deck = CardModule.deck OneSuit |> List.take 13
-        let game = GameMover.createValidGame deck r |> GameMover.unHideGame
+        let game = TestsSetupUtils.createGameSingleDeck r deck |> GameMover.unHideGame
         
         let playMoves initGame moves =
             moves
@@ -578,7 +581,7 @@ type RewardTests() =
         
         let r = Random(42)
         let deck = CardModule.deck OneSuit |> List.take 13
-        let game = GameMover.createValidGame deck r |> GameMover.unHideGame
+        let game = TestsSetupUtils.createGameSingleDeck r deck |> GameMover.unHideGame
         
         let playMoves initGame moves =
             moves
@@ -629,7 +632,7 @@ type RewardTests() =
                 MoveType.Move { From = C5;  To = C7; Card = Card (1, S) }
             |]  |> playMoves game
             
-        test <@ 1. = reward wonGame @>
+        test <@ SpiderSolitare.MonteCarloTreeSearch.winningNodeReward = reward wonGame @>
         
         
     [<Test>]
@@ -637,7 +640,7 @@ type RewardTests() =
         
         let r = Random(42)
         let deck = CardModule.deck OneSuit |> List.take 13
-        let game = GameMover.createValidGame deck r |> GameMover.unHideGame
+        let game = TestsSetupUtils.createGameSingleDeck r deck |> GameMover.unHideGame
         
         let playMoves initGame moves =
             moves
@@ -684,7 +687,7 @@ type RewardTests() =
         
         let r = Random(42)
         let deck = CardModule.deck OneSuit |> List.take 13
-        let game = GameMover.createValidGame deck r |> GameMover.unHideGame
+        let game = TestsSetupUtils.createGameSingleDeck r deck |> GameMover.unHideGame
         
         let playMoves initGame moves =
             moves

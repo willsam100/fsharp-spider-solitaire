@@ -15,6 +15,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console.Tests", "Console.Te
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SpiderConsole.Tests", "SpiderConsole.Tests\SpiderConsole.Tests.fsproj", "{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Analytics", "Analytics\Analytics.fsproj", "{B8D714ED-FFEF-4641-8B5B-998C648C44F3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -49,5 +51,9 @@ Global
 		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4A5B4DC7-BB63-49C6-80CA-5CDDB1B51C50}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8D714ED-FFEF-4641-8B5B-998C648C44F3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8D714ED-FFEF-4641-8B5B-998C648C44F3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8D714ED-FFEF-4641-8B5B-998C648C44F3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8D714ED-FFEF-4641-8B5B-998C648C44F3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

@@ -243,7 +243,7 @@ let encodeKeyGame (cardEncoder: CardEncoderKeyed) (game: Game) =
     let stock = 
         let stock = game.Stock |> List.map (cardEncoder.Encode >> int32)
         let emptyStock = List.replicate (50 - game.Stock.Length) cardEncoder.EmptyCard
-        emptyStock @ stock // Put the empty stock first, so that the data does not change order as it is used. 
+        stock @ emptyStock // Put the empty stock first, so that the data does not change order as it is used. 
 
     (game |> Game.getAllTabs |> List.collect encodeTableau) @ stock
 

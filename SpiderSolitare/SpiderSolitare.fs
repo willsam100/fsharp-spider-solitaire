@@ -314,6 +314,19 @@ module Coord =
         | 10 -> C10 
         | x -> failwithf "Invalid card column: %d" x
 
+    let toInt c = 
+        match c with 
+        | C1  ->  1
+        | C2  ->  2
+        | C3  ->  3
+        | C4  ->  4
+        | C5  ->  5
+        | C6  ->  6
+        | C7  ->  7
+        | C8  ->  8
+        | C9  ->  9
+        | C10   -> 10
+
 type SuitCompletedStatus = 
     | Zero
     | One
@@ -464,7 +477,9 @@ module Game =
                 |> List.concat
                 |> LogicUtils.shuffleList rand
 
-        Coord.allColumns |> Seq.fold (constructTableaus) (emptyGame, cards) |> constructStock
+        Coord.allColumns
+        |> LogicUtils.shuffleList rand
+        |> Seq.fold (constructTableaus) (emptyGame, cards) |> constructStock
 
     let getAllTabsWithColumn game = 
         Coord.allColumns |> List.map (fun x -> x, getTabForColumn game x)

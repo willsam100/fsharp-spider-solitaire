@@ -34,11 +34,59 @@ let decodeMove int =
 //    printfn "Timed %s: %A" name s.Elapsed
 //    x
 
+type CnnView = {
+    ProbsOne: float list
+    ProbsOneH: int 
+    ProbsOneC: int
+
+    ProbsTwo: float list
+    ProbsTwoH: int 
+    ProbsTwoC: int
+
+    ProbsThree: float list
+    ProbsThreeH: int 
+    ProbsThreeC: int
+
+    // ProbsFour: float list
+    // ProbsFourH: int 
+    // ProbsFourC: int
+
+    // ProbsFive: float list
+    // ProbsFiveH: int 
+    // ProbsFiveC: int
+}
+
+type MnistView = {
+    ProbsOne: float list
+    ProbsOneH: int 
+    ProbsOneW: int
+    ProbsOneC: int
+
+    ProbsTwo: float list
+    ProbsTwoH: int 
+    ProbsTwoC: int
+
+    ProbsThree: float list
+    ProbsThreeH: int 
+    ProbsThreeC: int
+
+    ProbsFour: float list
+    ProbsFourH: int 
+    ProbsFourC: int
+
+    ProbsFive: float list
+    ProbsFiveH: int 
+    ProbsFiveC: int
+}
+
 type IBransMover = 
     abstract member GetBestMove: Game -> (MoveType * float) list
     abstract member GetValue: Game -> float
+    abstract member GetColumnOfLongestRun: Game -> (Column * float) list
+    abstract member GetCnnView: Game -> CnnView
     abstract member GetMoves: Game -> MoveType list
     abstract member Flush: unit -> unit
+    abstract member GetMnist: string -> MnistView
 
 module Array = 
     let swap (a: _[]) x y =
@@ -77,7 +125,7 @@ let nextMove parentVisitCount (nodes: (MutableNode<'a, 'b> * float * float * flo
         if n = 0. then 
             node, n, Double.MaxValue
         else 
-            node, n, (2. * p * Math.Sqrt(Math.Log parentVisitCount ) / n ) + (t / n) 
+            node, n, (1. * p * Math.Sqrt(Math.Log parentVisitCount ) / n ) + (t / n) 
         )
     |> List.sortByDescending (fun (_, _, ucb1) -> ucb1)
     |> List.map (fun (x, y, _) -> x,y)
@@ -90,18 +138,18 @@ let reward game =
         winningNodeReward
     else
         let scoreTab cards = 
-            let rec scorer depth score cards = 
+            let rec scorer depth score (cards: Card list) = 
                 match cards with 
-                | [] when depth = 0 -> 0.01
+                | [] when depth = 0 -> 0.5
                 | [] -> score
                 | [_] when depth = 0 -> 0.
                 | [_]  -> score
                 | x::y::cards -> 
                     if CardModule.getValue y - 1 = CardModule.getValue x && CardModule.getSuit x = CardModule.getSuit y then 
-                        scorer (depth + 1) (score * 2.) (y :: cards)
+                        scorer (depth + 1) (score * 1.3) (y :: cards)
                     else score
 
-            (scorer 0 1.8 cards) / 10.
+            (scorer 0 2. cards) / 8.
 
         let x = game |> Game.Game.getAllTabs |> List.sumBy (Tableau.getVisible >> scoreTab)
         
@@ -154,8 +202,7 @@ let rec rolloutRandom pastGames (siblingCount: int) depth count game =
         match Game.GameMover.playMove move game with 
         | Game.Continue (game,_) ->  
             if count <= 0 then 
-                let r = reward game * Math.Pow(gamma, depth)
-                r / float siblingCount
+                reward game * Math.Pow(gamma, depth)
             else       
                 let pastGames = Set.add (game.GetHashCode()) pastGames
                 rolloutRandom pastGames siblingCount (depth + 1.) (count - 1) game
@@ -312,10 +359,11 @@ let iteration (trialCount: int) depth expandNode rollout (pastGames: IDictionary
                     
         | (nextNode: MutableNode<'a,'b>,n)::_ ->            
             if n = 0. then
-                nextNode.Reward <- rollout (node.Game, node.GameHashCode, 0, 50)
+                nextNode.Reward <- rollout (nextNode.Game, nextNode.GameHashCode, 0, 50)
                 
                 let numberOfParentUpdates = 
-                    if nextNode.Reward = winningNodeReward then 1000 else 1
+                    if nextNode.Reward = winningNodeReward then 1000 else
+                    1
                 
                 // Once we have found the winning node we must manipulate the higher layers to reflect that we have found the winning node.
                 // It would be better if we could skip out of the loop, and just returns the moves walking back up the tree.     
@@ -344,6 +392,7 @@ let getDepth node =
     
 type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set>, gameToMetrics) =
     let mutable winningNode = None
+    let mutable progress: float list = []
     
     let log count totalCount root =
         let (t,n) = getMetrics gameToMetrics root
@@ -381,7 +430,7 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                     | Game.Lost g -> g, Some false
                     | Game.Won g -> g, Some true
                 
-                g, isTerminal, x, float (1/List.length moves))
+                g, isTerminal, x, Math.Max(reward game * 2., 1.0)) 
                     
         let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
             let pastGames = pastGames.[gameHashCode]
@@ -396,6 +445,9 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                 iteration (totalCount - count) 0. expandRandom rolloutRandom pastGames gameToMetrics root
                 reSearch (count - 1)
         reSearch totalCount
+
+    member this.GetProgress() = 
+        progress |> List.rev
         
     member this.SearchWithNN(totalCount, (root: MutableNode<Game, MoveType>)) =
         
@@ -406,7 +458,7 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
             match Game.isComplete game with 
             | true ->
                 if cardCount = 0 then
-//                    winningNode <- Some gameHashCode
+                    winningNode <- Some gameHashCode
                     winningNodeReward
                 else 0.
                     
@@ -417,9 +469,9 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                 let score = reward game
                 let reward =
                         Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
-                            + (2. * (Math.Pow(decay, depth) * score))
+                            + (2.0 * Math.Pow(decay, depth) * score)
                     
-                reward // float (Math.Max(siblingCount, 1))
+                reward // * float (Math.Max(siblingCount, 1))
         
         let expand (node: MutableNode<Game, MoveType>) =
             let getMoves game = 
@@ -427,10 +479,26 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                 let bestMoves = 
                     brainsMover.GetBestMove game
                     |> List.filter (fun (move,_) -> moves |> List.contains move)
+
+                if moves.Length > bestMoves.Length then
+                    progress <- float (moves.Length - bestMoves.Length) / float moves.Length :: progress
+
+                // bestMoves  |> List.iter (fun (m,p) -> printfn "%A, %.4f" m p)
+
+                let bestMoves = 
+
+                    List.fold (fun bestMoves validMove -> 
+                        if bestMoves |> List.map fst |> List.contains validMove then 
+                            bestMoves
+                        else 
+                            (validMove, 0.5) :: bestMoves
+                    ) bestMoves moves
+
+                // printfn "bestMoves"
                     
-                if moves.Length <> bestMoves.Length then    
-                    printfn "We have been missing a move in the neural network"
-                    Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
+                // if moves.Length <> bestMoves.Length then    
+                //     printfn "We have been missing a move in the neural network"
+                //     Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
 
                 bestMoves
                 |> List.map (fun (x,y) ->

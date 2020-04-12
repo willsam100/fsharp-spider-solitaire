@@ -11,12 +11,6 @@ open SpiderSolitare.Game
 open SpiderConsole.Tests.TestsSetupUtils
 open SpiderSolitare.MonteCarloTreeSearch
 open Swensen.Unquote
-open SpiderConsole.Tests
-open FsCheck.NUnit
-open NUnit.Framework
-open SpiderSolitare.Game
-open SpiderSolitare.Game
-
 type NoShrink =
     static member Int() =
         {new Arbitrary<Int32>() with
@@ -67,7 +61,7 @@ type IterationNeuralNetworkTests() =
         let node = MutableNode(almostFinishedGame, 0.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
         
-        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(25, node)
+        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(25, node) |> ignore
         printTree gameToMetrics node
             
         test <@
@@ -107,7 +101,7 @@ type IterationNeuralNetworkTests() =
         let node = MutableNode(almostFinishedGame, 0.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
         
-        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(10000, node)
+        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(10000, node) |> ignore
         printTree gameToMetrics node
         
         let getValue gameHashCode =
@@ -144,7 +138,7 @@ type IterationNeuralNetworkTests() =
         let node = MutableNode(almostFinishedGame, 0.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
         
-        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(15, node)
+        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(15, node) |> ignore
 //        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(105, node)
         printTree gameToMetrics node
         
@@ -198,7 +192,7 @@ type IterationNeuralNetworkTests() =
         let node = MutableNode(game, 0.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
         
-        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(62, node)
+        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(62, node) |> ignore
         printTree gameToMetrics node
         
         test <@
@@ -243,7 +237,7 @@ type IterationNeuralNetworkTests() =
         let node = MutableNode(game, 0.0, 0.5, None, 0, None, None, 0)
         addNode pastGames node []
 
-        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(5, node)
+        Searcher(false, brainsMover, pastGames, gameToMetrics).SearchWithNN(5, node) |> ignore
         
         test <@
                  node.Children
@@ -293,7 +287,7 @@ type IterationNeuralNetworkTests() =
         
         let nn =
             let searcher = Searcher(false, brainsMover, pastGames, gameToMetrics)
-            let search(iterationCount, node) = searcher.SearchWithNN(iterationCount, node)
+            let search(iterationCount, node) = searcher.SearchWithNN(iterationCount, node) |> ignore
             playGame gameToMetrics 50 5 node search
             
         printTree gameToMetrics node
@@ -344,7 +338,7 @@ type IterationNeuralNetworkTests() =
         
         let nn =
             let searcher = Searcher(false, brainsMover, pastGames, gameToMetrics)
-            let search(iterationCount, node) = searcher.SearchWithNN(iterationCount, node)
+            let search(iterationCount, node) = searcher.SearchWithNN(iterationCount, node) |> ignore
             playGame gameToMetrics 1310 1 node search   // 1322 // 1342
             
         printTree gameToMetrics node
@@ -392,7 +386,7 @@ type IterationNeuralNetworkTests() =
         addNode pastGames node []
         
         let searcher = Searcher(false, brainsMover, pastGames, gameToMetrics)           
-        searcher.SearchWithNN(1000, node)
+        searcher.SearchWithNN(1000, node) |> ignore
         
         printTreeWithDepth 1 gameToMetrics node
 
