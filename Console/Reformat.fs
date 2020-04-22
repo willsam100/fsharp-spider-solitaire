@@ -109,6 +109,31 @@ let sequenceDataPolicy rowNumber (x: string) =
                 raise e    
     }
 
+let sequenceDqnPolicy rowNumber (x: string) = 
+    async {
+        do! Async.SwitchToThreadPool()
+        try 
+            let row = x.Split ","
+            let action = row.[0] |> Int32.Parse |> decodeMove |> Array.map string |> String.concat "" |> moveEncoder.Decode
+            let game = row |> Array.skip 3 |> Array.take 286 |> String.concat ","
+
+            return 
+                    {
+                        Game = game
+                        Move = action |> Representation.encodeMove |> string
+                        MoveOrder = 0
+                        GameNumber = 0
+                        RowNumber = rowNumber
+                        MoveCount = 0
+                        ScoredGame = 0.
+                        LongestColumn = C1 //game |> getLongestColumn 26
+                    } 
+        with 
+        | e -> 
+            printfn "RowNumber:%d" rowNumber
+            return raise e    
+    }
+
 let sequenceDataColumn rowNumber (x: string) = 
     async {
         do! Async.SwitchToThreadPool()
@@ -395,6 +420,19 @@ let appendPolicy (writer: StreamWriter) count (outputFormat: string -> string ->
 let saveValueNet data = 
     let rows = data |> Array.map (fun (g, outcome) -> sprintf "%s,%d" g outcome )
     File.WriteAllLines ("/Users/willsam100/Desktop/spider-value-net.csv", rows)
+
+let saveBalancedPolicyNet (writer: StreamWriter) count data =
+    data 
+    |> oversample count 
+    |> Array.map (fun (g, outcome) -> 
+        let game  = g |> formatExpand 26 |> format13
+        // let game' = game |> shortGamePlusOne 1
+        // sprintf "%s,%s,%s" outcome game game' 
+
+        sprintf "%s,%s" outcome game
+        
+        )
+    |> Array.iter (fun row -> writer.WriteLine row )
 
 let saveValidMove data = 
     let rows = data |> Array.map (fun (g, validMoves) -> sprintf "%s,%s" g validMoves )
@@ -695,6 +733,54 @@ let readAndFormatValue file =
     // |> Array.map (fun x -> x.Game, x.Reward)
     // |> Array.distinctBy (fun (g,_) -> g)
     |> saveValueNet
+
+let reBalance file = 
+    File.ReadAllLines file
+    // |> (fun x -> Array.shuffle x; x)
+    // |> Array.take 400  000
+    |> Array.mapi sequenceDqnPolicy
+    |> Async.Parallel
+    |> Async.RunSynchronously
+    |> Array.filter (fun x -> x.Move <> "0" && x.Move <> "1" )
+    |> Array.map (fun x -> 
+
+        // [("32", 1);("61", 2);("93", 3);("52", 4);("95", 5);("15", 6);("34", 7);("92", 8);("7", 9);("33", 10);]
+        ["32"; "61"; "93"; "52"; "95"; "15"; "34"; "92"; "7";"33"; "25";"23";"5";"36";"74";"12";"11";"47";"54";"56";"22";"27";"14";"72";"78";"9"]
+        |> List.mapi (fun i x -> x, i + 1)
+        |> List.tryFind (fun (move, _) -> move = x.Move )
+        |> Option.map (fun (move, index) ->  { x with Move = string index} )
+        |> Option.defaultValue ({ x with Move = "0"} )  )
+
+        
+    |> Array.groupBy (fun x ->  x.Move )
+    // |> fun map -> getOversampleCount map, map |> Array.map snd
+    |> fun map -> 
+
+        // map 
+        // |> Array.map (fun (key,v) -> key, v |> Array.length)
+        // |> Array.sortByDescending snd
+        // |> Array.iter (printfn "%A")
+   
+        // failwith "42"
+
+        map |> Array.find (fun (key,v) -> key = "1") |> snd |> Array.length, map |> Array.map snd
+    // |> fun (count,map) -> Array.map (oversample count) map
+    |> fun (count, xs)-> 
+        printfn "Oversample count: %d" count
+        // count, xs |> Array.map (Array.map (fun x -> x.Game, x.LongestColumn |> Coord.toInt |> fun x -> x - 1 |> string))
+        count, xs |> Array.map (Array.map (fun x -> x.Game, x.Move))
+    |> fun (count, xs) -> 
+
+        let targetFile = sprintf "%s-balanced.csv" file
+        if File.Exists targetFile then
+            File.Delete targetFile
+
+        let writer = new StreamWriter(targetFile)
+        writer, count, xs
+    |> fun (writer, count, xs) ->  
+        xs |> Array.iter (saveBalancedPolicyNet writer count)
+        writer.Flush()
+        writer.Close()
 
 let readAndFormatValidMoves file = 
 

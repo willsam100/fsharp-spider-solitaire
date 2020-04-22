@@ -36,22 +36,30 @@ let playMove log randomness gameToMetrics (root: MutableNode<'a, 'b>) t n  =
     if root.Children.IsEmpty then 
         // This means that the NN suggested a move that had already been played ie a loop. 
         // It should be considered a loss since looping should be penalized. 
-        None
+        Error None
     else 
         let v = r.NextDouble()
         if v < randomness then
             if log then  printfn "Playing best move"
-            root.Children |> List.maxBy (getMetrics gameToMetrics >> snd) |> Some
+            let nextNode = root.Children |> List.maxBy (getMetrics gameToMetrics >> snd) 
+            // match nextNode.Children with 
+            // | [] when nextNode.TerminalValue = None -> nextNode |> Some |> Error
+            //  | _ -> 
+            Ok nextNode
         else                 
             let move = r.Next(0, root.Children.Length)
             if log then printfn "Playing random move. %d/%d" move (root.Children.Length)
-            root.Children.[move] |> Some
+            let nextNode = root.Children.[move]
+            // match nextNode.Children with 
+            // | [] when nextNode.TerminalValue = None -> nextNode |> Some |> Error
+            // | _ -> 
+            Ok nextNode
 
 let playGame log randomMoveThreshold brainsMover updateHistory iterationCount totalCount gameNumber = 
 
     let r = Random(gameNumber)
     let gameToMetrics = new Dictionary<_, _>()
-    let deck = Game.CardModule.deck Game.OneSuit |> List.take (13 * 3)
+    let deck = Game.CardModule.deck Game.OneSuit //|> List.take (13 * 2)
     let game = Game.GameMover.createValidGame deck r |> Game.GameMover.unHideGame
     
     let pastGames = Dictionary<_, _>()
@@ -73,10 +81,18 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
         let movesMade = float (totalCount - count)
         let r = randomMoveThreshold
         match playMove log r gameToMetrics root t n with 
-        | None -> 
+        | Error _ ->   
+            // we don't actually know why we are here. Some how we coudln't see that this was a dead state
+            // Most likely this is the cause of a loop - we have already visited this state. 
+            printfn "Finishing without a good reason."
             false, gameNumber, game, movesMade, history, searcher.GetProgress() // TODO: keep reviing this
 
-        | Some nMove -> 
+        // | Error (Some nMove) -> 
+        //     printfn "Finishing - next move leads to a non-terminal state with no moves"
+        //     let history = updateHistory game nMove.Game nMove.Move.Value history
+        //     false, gameNumber, game, movesMade, history, searcher.GetProgress() // TODO: keep reviing this
+
+        | Ok nMove -> 
             nMove.Parent <- None
             match nMove.TerminalValue with 
             | None -> 

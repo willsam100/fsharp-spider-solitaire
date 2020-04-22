@@ -33,8 +33,13 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
 
         |> List.collect (fun (i, isLast, game, move, nextGame) ->  Reformat.permuteColumns (game, move, nextGame) |> List.map (fun (x,y,z) -> i, isLast, x,y,z) )
         |> List.iter (fun (i, isLast, game:string, move:int, nextGame:string) -> 
-            let reward = Math.Pow(0.9, float i) * (gameDecoded 26 game |> reward)
             let isDone = if isLast then 1. else 0.
+            let realReward = gameDecoded 26 nextGame |> reward
+            let reward = 
+                if isLast then 
+                    if realReward = winningNodeReward then winningNodeReward else 0.                    
+                else realReward
+
             sprintf "%d,%f,%.1f,%s,%s" move (reward) isDone ( game) ( nextGame)|> writer.WriteLine ) 
 
     let writeFileValueFileBuilder (writer:StreamWriter) isWin gameNumber history = 

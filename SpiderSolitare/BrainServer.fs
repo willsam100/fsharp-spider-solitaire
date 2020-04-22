@@ -95,7 +95,7 @@ let singleEncoded (g:string) =
 let shortGamePlusOne increment (g: string) = 
     g.Split "," 
     |> Array.map Int32.Parse
-    |> Array.map (fun x -> (if x + increment >= 15 then 1 else x + increment) |> string)
+    |> Array.map (fun x -> (if x + increment >= 15 || x = 1 then 1 else x + increment) |> string)
     |> String.concat ","
 
 let format96 (game:string) = 
@@ -144,7 +144,7 @@ let format26Stock (game:string) =
         |> Array.truncate 10
 
     let stock = 
-        let empty = Array.replicate (stock.Length - 26) "1"
+        let empty = Array.replicate (26 - stock.Length) "1"
         Array.append stock empty |> String.concat ","
 
     sprintf "%s,%s" tableau stock
@@ -334,7 +334,7 @@ type BrainsMoverClient(port) =
                 // if gamesValueNet.Count > 10000 then 
                 //     gamesValueNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format13
+                let encoded = MonteCarloTreeSearch.encodeGame game |> format26Stock
                 let v = continuation encoded
                 gamesValueNet.Add (game, v)
                 v
@@ -398,17 +398,30 @@ type BrainsMoverClient(port) =
             raise e                
 
 
-    let getMove move = 
-        match moves.TryGetValue move with 
-        | true, m-> m
-        | false, _ -> 
+    let getMove moves move = 
+        // match moves.TryGetValue move with 
+        // | true, m-> m
+        // | false, _ -> 
 
             // if moves.Count > 10000 then 
             //     moves.Clear()
+
+            // printfn "Raw: %s" move
         
-            let m = move |> Int32.Parse |> toOneHot |> moveEncoder.Decode
-            moves.Add (move, m)
-            m
+            let m = move |> Int32.Parse  |> decodeMove
+            // printfn "Moves:"
+            // moves |> List.iter (printfn "%A")
+            // printfn "--"
+            // printfn "%A" m
+
+            match m with 
+            | Move m ->
+                moves
+                |> List.filter (fun x -> x.To = m.To && x.From = m.From)
+                |> List.tryHead
+                |> Option.map (fun x -> Move x)
+                |> Option.defaultValue (Move m)
+            | x -> x            
 
 
     interface MonteCarloTreeSearch.IBransMover with 
@@ -427,7 +440,14 @@ type BrainsMoverClient(port) =
                         let body = post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText
                         let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
 
-                        Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove x, y)
+                        let moves = 
+                            game 
+                            |> GameMover.validMoves
+                            |> List.choose (function 
+                                | Move m -> Some m
+                                | _ -> None)
+
+                        Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove moves x, y)
                     )
         
         member this.GetValue game = 

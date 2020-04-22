@@ -22,6 +22,7 @@ type RunConfig = {
     LoopCount: int
     MoveCount: int
     RandomMoveThreshold: float
+    RandomDelta: float
 }
 
 let showMnist (imageData: byte array array) =
@@ -83,6 +84,8 @@ let train network load epochs =
         | "mnist" -> "/Users/willsam100/projects/plaidML/mnist-value-net.sh"
         | "q"
         | "qlearn" -> "/Users/willsam100/projects/plaidML/q-learn-spider.sh"
+        | "qv"
+        | "qlearn-value" -> "/Users/willsam100/projects/plaidML/q-learn-spider-value.sh"
         | x -> failwithf "Invalid network to train: %s" x
 
     printfn "Training..."
@@ -92,42 +95,47 @@ let train network load epochs =
     train.Start() |> ignore
     train
 
-type QLearner(qLearning, qlearningBk) = 
-    let mutable p: Process = null
+type QLearner(qLearning, messageFile) = 
+    let mutable policy: Process = null
+    let mutable value: Process = null
 
-    member this.WaitForTraingingToStart() = 
-        while File.Exists qLearning do 
-            printfn "Waiting for training to start..."
-            System.Threading.Thread.Sleep (TimeSpan.FromSeconds 5.)
+    // member this.WaitForTraingingToStart() = 
 
-    member this.CanStartTraining() = 
-        if isNull p |> not then false 
-        else 
-            match File.Exists qLearning with 
-            | true -> true
-            | false -> 
-                match File.Exists qlearningBk with 
-                | true -> 
-                    File.Move(qlearningBk, qLearning)
-                    true
-                | false -> false            
+    //     while File.Exists messageFile do 
+    //         System.Threading.Thread.Sleep (TimeSpan.FromSeconds 0.5)
+    //     File.WriteAllText (messageFile,"\n")
+
+    member private this.CanStartTraining() = 
+        if policy |> isNull |> not || value |> isNull |> not then false 
+        else File.Exists qLearning        
 
     member this.Learn() = 
-        if isNull p || p.HasExited then 
-            p <- train "q" "" ""
-        else 
-            this.StopTraining()
-            printfn "Waiting for training to complete..."
-            p.WaitForExit()
-            p <- train "q" "" ""
+        if File.Exists messageFile |> not then 
+            File.WriteAllText (messageFile,"\n")
+
+        if this.CanStartTraining() |> not then 
+            ()
+        else
+
+            if isNull policy && isNull value || policy.HasExited && value.HasExited then 
+                policy <- train "q" "" ""
+                value <- train "qv" "" ""
+                // this.WaitForTraingingToStart()
+            else 
+                this.StopTraining()
+                printfn "Waiting for training to complete..."
+                policy.WaitForExit()
+                value.WaitForExit()
+
+                policy <- null
+                value <- null
+                this.Learn()
 
     member this.StopTraining() = 
-        File.Delete qlearningBk
+        File.Delete messageFile
 
 
 let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNumbers = 
-    if not log && qlearner.CanStartTraining() then 
-        qlearner.Learn()
 
     let updateHistory parentGame game move history = 
         let gameAndBestMove = 
@@ -136,13 +144,6 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
             (moveEncoder.Encode move |> encodeMove),
             (game |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock)
         gameAndBestMove :: history
-
-//    let rec printTree depth (node: MonteCarloTreeSearch.Node) = 
-//        printfn "%s%f %d %A %d" depth node.T node.N node.Move (node.Game.GetHashCode())
-//        match node.Children with 
-//        | [] -> ()
-//        | xs -> 
-//            xs |> List.iter (printTree (depth + "  "))
 
     let getGames node =
         let rec loop acc (nodes: MonteCarloTreeSearch.MutableNode<'a, 'b> list) =  
@@ -183,7 +184,7 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
             brain.Stop()
             xs
 
-    let results = 
+    let tasks = 
         gameNumbers
         |> List.toArray
         |> fun x -> Array.shuffle x; x
@@ -193,7 +194,13 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
         |> List.mapi (fun i x -> 5100 + i * 2, x)
         |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
         |> List.toArray    
-        |> Task.WhenAll    
+        |> Task.WhenAll   
+
+    if not log then 
+        qlearner.Learn()
+
+    let results =    
+        tasks 
         |> Async.AwaitTask
         |> Async.Catch
         |> Async.RunSynchronously
@@ -202,28 +209,23 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
         | Choice2Of2 e -> 
             raise e
 
-    let winningRate: float = (results |> Array.filter snd |> Array.length |> float) / (List.length gameNumbers |> float)
+    let winningRate: float = (results |> Array.filter snd |> Array.length |> float) / (float parallelCount)
     printfn "WINING RATE: %.2f" winningRate
     printfn "Games lost: %s" (results |> Array.filter (snd >> not) |> Array.map (fst >> string) |> String.concat ",")
-
+    qlearner.StopTraining()
     saver.Finish()
 
     if config.LoopCount > 0 then 
-        printfn "Training policy"
-        qlearner.Learn()
-        qlearner.WaitForTraingingToStart()
-
         printfn "Running policy: %d" config.LoopCount
+        let config = {config with RandomMoveThreshold = Math.Min(0.99, config.RandomMoveThreshold + config.RandomDelta)}
         run qlearner log (saver: ISaver) parallelCount {config with LoopCount = config.LoopCount - 1} gameNumbers
-    else 
-        qlearner.StopTraining()
 
 [<EntryPoint>]
 let main argv =
     let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw-old.csv"
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
     let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
-    let qLearningBk = "/Users/willsam100/Desktop/spider-policy-net-train-bk.csv"
+    let qLearningBk = "/Users/willsam100/Desktop/message.csv"
     let qlearner = QLearner(qLearning, qLearningBk)
 
     match argv with 
@@ -261,10 +263,11 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = 200
+            MctsIterationCount = 50
             MoveCount = 50
             LoopCount = 0
             RandomMoveThreshold = 1.0
+            RandomDelta = 0.
         }
 
         let saver = 
@@ -280,14 +283,15 @@ let main argv =
 
         Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
-        let gameNumbers = List.replicate 1 [ 1 .. 10000 ] |> List.concat
+        let gameNumbers = List.replicate 1 [ 1 .. 100000 ] |> List.concat
         let log = false
-        let parallelCount = 7
+        let parallelCount = 4
         let config = {
-            MctsIterationCount = 50
+            MctsIterationCount = 100
             LoopCount = 20
             MoveCount = 200
             RandomMoveThreshold = 0.9
+            RandomDelta = 0.001
         }
 
         let saver = 
@@ -390,7 +394,8 @@ let main argv =
             b.Stop()
         () 
 
-
+    | [| "balance"; file |] ->  
+        Reformat.reBalance file
 
     | [| "mnist"; |] -> 
 

@@ -540,9 +540,13 @@ module Game =
             // | _, _, _,Eight -> true
             // | _ -> false   
 
-            match game.Spades with 
-            | Eight -> true
-            | _ -> false
+            match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
+            | _, One, _, _ -> true
+            | Two, Two, Two, Two -> true
+            | Eight, _, _, _ -> true
+            | _, _, Eight, _ -> true
+            | _, _, _,Eight -> true
+            | _ -> false   
 
     let toString game =
         game.ToString()

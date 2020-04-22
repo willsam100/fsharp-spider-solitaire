@@ -149,7 +149,7 @@ let reward game =
                         scorer (depth + 1) (score * 1.3) (y :: cards)
                     else score
 
-            (scorer 0 2. cards) / 8.
+            (scorer 0 2. cards) / 10.
 
         let x = game |> Game.Game.getAllTabs |> List.sumBy (Tableau.getVisible >> scoreTab)
         
@@ -394,7 +394,7 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
     let mutable winningNode = None
     let mutable progress: float list = []
     
-    let log count totalCount root =
+    let logger count totalCount root =
         let (t,n) = getMetrics gameToMetrics root
         if count <= 0 then 
             if log then 
@@ -440,7 +440,7 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
             expandNode getMovesRandom pastGames node |> List.distinctBy (fun x -> reward x.Game)
         
         let rec reSearch count = 
-            log count totalCount root
+            logger count totalCount root
             if count > 0 then 
                 iteration (totalCount - count) 0. expandRandom rolloutRandom pastGames gameToMetrics root
                 reSearch (count - 1)
@@ -453,7 +453,7 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
         
         let rollout (game: Game, gameHashCode: int, siblingCount: int, depthSearch) = 
             let depth = pastGames.[gameHashCode].Count |> float
-            let cardCount = game |> Game.Game.getAllTabs |> List.sumBy (Tableau.getVisible >> List.length)
+            let cardCount = game |> Game.Game.getAllTabs |> List.sumBy Tableau.length
 
             match Game.isComplete game with 
             | true ->
@@ -468,9 +468,10 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                 let b = brainsMover.GetValue game
                 let score = reward game
                 let reward =
+                        
                         Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
                             + (2.0 * Math.Pow(decay, depth) * score)
-                    
+                // printfn "Rollout - V:%f S:%f R:%f" b score reward   
                 reward // * float (Math.Max(siblingCount, 1))
         
         let expand (node: MutableNode<Game, MoveType>) =
@@ -500,6 +501,10 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                 //     printfn "We have been missing a move in the neural network"
                 //     Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
 
+                // if log then 
+                //     printfn "BestMoves: "
+                //     bestMoves |> List.sortByDescending snd |> List.map string |> String.concat "," |> printfn "%s"
+
                 bestMoves
                 |> List.map (fun (x,y) ->
                     let g, isTerminal = 
@@ -511,10 +516,10 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                     g, isTerminal, x, y)
             
             expandNode getMoves pastGames node
-            |> List.distinctBy (fun x -> reward x.Game)
+            |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
         
         let rec reSearch count = 
-            log count totalCount root
+            logger count totalCount root
             if count > 0 then
 //                printTreeWithDepth 1 gameToMetrics root
                 iteration (totalCount - count) 0. expand rollout pastGames gameToMetrics root

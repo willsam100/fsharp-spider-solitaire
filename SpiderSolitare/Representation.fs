@@ -307,3 +307,36 @@ let decodeGame (cardEncoder:CardEncoder) (game: string) =
 
 // CardModule.create 10 S |> Option.get; CardModule.create 9 S |> Option.get] |> List.map (fun x -> ce.Encode x) |> List.concat |> List.map string |> String.Concat
 
+let encodeMove move = 
+    match move with 
+    | Stock -> 0
+    | Flip _ -> 1
+    | Move c -> 
+        let from = c.From |> Coord.toInt |> fun x -> x - 1
+        let toColumn = c.To |> Coord.toInt |> fun x -> x - 1
+        from * 10 + (toColumn + 2)
+
+let decodeMove move = 
+
+    match move with 
+    | 0 -> Stock
+    | 1 -> Flip C1
+    | move -> 
+        let move = move - 2
+
+        let from = move / 10 |> fun x -> x + 1 |> Coord.parseColumn
+        let toColumn = move % 10 |> fun x -> x + 1 |> Coord.parseColumn
+
+        Move { To = toColumn; From = from; Card = CardModule.create 1 S |> Option.get}
+
+
+let allMoves = 
+    let allColumns = [1 .. 10] |> List.map Coord.parseColumn
+
+    allColumns
+    |> List.collect (fun x -> allColumns |> List.map (fun y -> x,y ))
+    // |> List.filter (fun (x,y) -> x <> y)
+    |> List.map (fun (x,y) -> Move {To = x; From = y; Card = CardModule.create 1 S |> Option.get})
+
+
+allMoves |> List.map (fun x -> x = (x |> encodeMove |> decodeMove) )
