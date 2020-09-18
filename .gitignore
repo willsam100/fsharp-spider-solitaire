@@ -40,3 +40,6 @@ Thumbs.db
 *.dotCover
 symbolCache.db
 UserPrefs.xml
+
+.fake
+.ionide
