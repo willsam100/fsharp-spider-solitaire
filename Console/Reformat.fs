@@ -742,28 +742,27 @@ let reBalance file =
     |> Async.Parallel
     |> Async.RunSynchronously
     |> Array.filter (fun x -> x.Move <> "0" && x.Move <> "1" )
-    |> Array.map (fun x -> 
+    // |> Array.map (fun x -> 
 
-        // [("32", 1);("61", 2);("93", 3);("52", 4);("95", 5);("15", 6);("34", 7);("92", 8);("7", 9);("33", 10);]
-        ["32"; "61"; "93"; "52"; "95"; "15"; "34"; "92"; "7";"33"; "25";"23";"5";"36";"74";"12";"11";"47";"54";"56";"22";"27";"14";"72";"78";"9"]
-        |> List.mapi (fun i x -> x, i + 1)
-        |> List.tryFind (fun (move, _) -> move = x.Move )
-        |> Option.map (fun (move, index) ->  { x with Move = string index} )
-        |> Option.defaultValue ({ x with Move = "0"} )  )
+    //     // [("32", 1);("61", 2);("93", 3);("52", 4);("95", 5);("15", 6);("34", 7);("92", 8);("7", 9);("33", 10);]
+    //     ["32"; "61"; "93"; "52"; "95"; "15"; "34"; "92"; "7";"33"; "25";"23";"5";"36";"74";"12";"11";"47";"54";"56";"22";"27";"14";"72";"78";"9"]
+    //     |> List.mapi (fun i x -> x, i + 1)
+    //     |> List.tryFind (fun (move, _) -> move = x.Move )
+    //     |> Option.map (fun (move, index) ->  { x with Move = string index} )
+    //     |> Option.defaultValue ({ x with Move = "0"} )  )
 
-        
     |> Array.groupBy (fun x ->  x.Move )
-    // |> fun map -> getOversampleCount map, map |> Array.map snd
-    |> fun map -> 
+    |> fun map -> getOversampleCount map, map |> Array.map snd
+    // |> fun map -> 
 
-        // map 
-        // |> Array.map (fun (key,v) -> key, v |> Array.length)
-        // |> Array.sortByDescending snd
-        // |> Array.iter (printfn "%A")
+    //     // map 
+    //     // |> Array.map (fun (key,v) -> key, v |> Array.length)
+    //     // |> Array.sortByDescending snd
+    //     // |> Array.iter (printfn "%A")
    
-        // failwith "42"
+    //     // failwith "42"
 
-        map |> Array.find (fun (key,v) -> key = "1") |> snd |> Array.length, map |> Array.map snd
+    //     map |> Array.find (fun (key,v) -> key = "1") |> snd |> Array.length, map |> Array.map snd
     // |> fun (count,map) -> Array.map (oversample count) map
     |> fun (count, xs)-> 
         printfn "Oversample count: %d" count

@@ -55,6 +55,15 @@ let playMove log randomness gameToMetrics (root: MutableNode<'a, 'b>) t n  =
             // | _ -> 
             Ok nextNode
 
+type GameResult = {
+    IsWin: bool
+    GameNumber: int
+    Game: Game
+    MovesMade: float
+    History: (int * string * int * string) list
+    Progress: float list
+}
+
 let playGame log randomMoveThreshold brainsMover updateHistory iterationCount totalCount gameNumber = 
 
     let r = Random(gameNumber)
@@ -85,7 +94,15 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
             // we don't actually know why we are here. Some how we coudln't see that this was a dead state
             // Most likely this is the cause of a loop - we have already visited this state. 
             printfn "Finishing without a good reason."
-            false, gameNumber, game, movesMade, history, searcher.GetProgress() // TODO: keep reviing this
+            // false, gameNumber, game, movesMade, history, searcher.GetProgress() // TODO: keep reviing this
+            {
+                IsWin = false
+                GameNumber = gameNumber
+                Game = game
+                MovesMade = movesMade
+                History = history
+                Progress = searcher.GetProgress()
+            }
 
         // | Error (Some nMove) -> 
         //     printfn "Finishing - next move leads to a non-terminal state with no moves"
@@ -98,7 +115,14 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
             | None -> 
                 if count <= 0 then 
                     let history = updateHistory game nMove.Game nMove.Move.Value history
-                    false, gameNumber, nMove.Game, movesMade, history, searcher.GetProgress()
+                    {
+                        IsWin = false
+                        GameNumber = gameNumber
+                        Game = nMove.Game
+                        MovesMade = movesMade
+                        History = history
+                        Progress = searcher.GetProgress()
+                    }
                 else    
                     if log then 
                         if false then 
@@ -115,9 +139,23 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
 //                let game = nMove.Game
                 let history = updateHistory game nMove.Game nMove.Move.Value history
                 if didWin then
-                    true, gameNumber, nMove.Game, movesMade, history, searcher.GetProgress()
+                    {
+                        IsWin = true
+                        GameNumber = gameNumber
+                        Game = nMove.Game
+                        MovesMade = movesMade
+                        History = history
+                        Progress = searcher.GetProgress()
+                    }
                 else
-                    false, gameNumber, nMove.Game, movesMade,  history, searcher.GetProgress()
+                    {
+                        IsWin = false
+                        GameNumber = gameNumber
+                        Game = nMove.Game
+                        MovesMade = movesMade
+                        History = history
+                        Progress = searcher.GetProgress()
+                    }
 
     loop false [] totalCount root game 
 

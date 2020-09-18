@@ -65,7 +65,6 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
                     policyBuilder.Close()
                     rc.Reply()
 
-
                 | WriteValueReply (isWin, gameNumber, history, rc) -> 
                     let valueBuilder = new StreamWriter(new FileStream(valueFile, FileMode.Append))
                     writeFileValueFileBuilder valueBuilder isWin gameNumber history; 
@@ -114,10 +113,10 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
     //     loop (new StreamWriter(new FileStream(policyFile, FileMode.Append)), new StreamWriter(new FileStream(valueFile, FileMode.Append)) ))
 
     member this.SaveGameMoves isWin gameNumber history =  
-        // if isWin then 
-        //     mb.PostAndReply (fun rc -> WritePolicyReply (isWin, gameNumber, List.rev history, rc))
+        if isWin then 
+            mb.PostAndReply (fun rc -> WritePolicyReply (isWin, gameNumber, List.rev history, rc))
         // mb.PostAndReply (fun rc -> WriteValueReply (isWin, gameNumber, history |> List.rev |> List.map (fun (moveOrder, game,_) -> moveOrder, game), rc))       
-        mb.PostAndReply (fun rc -> WriteQLearningReply (isWin, history |> List.rev |> List.map (fun (_, currentGame, nextGame,move) -> currentGame, nextGame, move), rc))       
+        // mb.PostAndReply (fun rc -> WriteQLearningReply (isWin, history |> List.rev |> List.map (fun (_, currentGame, nextGame,move) -> currentGame, nextGame, move), rc))       
         // else 
             // mb.Post (WritePolicy (isWin, gameNumber, List.rev history))
             // mb.Post (WriteValue (isWin, gameNumber, ))  
@@ -132,4 +131,4 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
 
     member this.Format() = 
         Reformat.readAndFormatPolicy policyFile
-        Reformat.readAndFormatValue valueFile
+        // Reformat.readAndFormatValue valueFile

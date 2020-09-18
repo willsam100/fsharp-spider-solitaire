@@ -13,7 +13,8 @@ open System.Diagnostics
 open System.Drawing
 
 type ISaver = 
-    abstract member SaveGameMoves: bool ->  int -> (int * string * int * string) list -> unit
+    // abstract member SaveGameMoves: bool ->  int -> (int * string * int * string) list -> unit
+    abstract member SaveGameMoves: bool ->  int -> (int * string * int) list -> unit
     abstract member Finish: unit -> unit
     abstract member Format: unit -> unit
 
@@ -162,24 +163,26 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
         range 
         |> List.map (fun x -> 
             match MctsSpiderGameLoop.playGame log config.RandomMoveThreshold brainsMover updateHistory config.MctsIterationCount config.MoveCount x with 
-            | isWin, gameNumber, game, movesMade, history, progress -> 
+            | gameResult -> 
 
                 brainsMover.Flush()
 
-                printfn "%A" game
-                printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f" gameNumber (if isWin then "WIN" else "LOST") movesMade
-                if List.isEmpty progress then 
+                printfn "%A" gameResult.Game
+                printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f" gameResult.GameNumber (if gameResult.IsWin  then "WIN" else "LOST") gameResult.MovesMade
+                if List.isEmpty gameResult.Progress then 
                     printfn "No progres"
                 else                 
-                    progress |> List.map (fun x -> sprintf "%.2f" x) |> String.concat "," |> printfn "%s"
+                    gameResult.Progress |> List.map (fun x -> sprintf "%.2f" x) |> String.concat "," |> printfn "%s"
 
                 printfn ""                
 
                 // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
-                if history |> List.isEmpty |> not then 
-                    saver.SaveGameMoves isWin gameNumber history 
+                if gameResult.History |> List.isEmpty |> not then 
+                    gameResult.History  
+                    |> List.map (fun (x,y,z,_) -> x,y,z)
+                    |> saver.SaveGameMoves gameResult.IsWin gameResult.GameNumber 
                 
-                gameNumber, isWin )
+                gameResult.GameNumber, gameResult.IsWin )
         |> fun xs -> 
             brain.Stop()
             xs

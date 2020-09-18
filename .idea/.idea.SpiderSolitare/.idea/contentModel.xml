@@ -32,6 +32,7 @@
         <e p="obj" t="ExcludeRecursive" />
         <e p="Persistance.fs" t="Include" />
         <e p="Reformat.fs" t="Include" />
+        <e p="Visulization.fs" t="Include" />
       </e>
       <e p="Console.Tests" t="IncludeRecursive">
         <e p="bin" t="ExcludeRecursive" />
