@@ -11,17 +11,17 @@ https://dotnet.microsoft.com/download
 
 ## The Games:
 
-All of th game and rules are implemented in the `SpiderSolitare` project. `SpiderSolitare.fs` contains all of the game logic. 
+All of th game and rules are implemented in the `SpiderSolitare` project. [`SpiderSolitare.fs`](https://github.com/willsam100/fsharp-spider-solitaire/blob/Develop/SpiderSolitare/SpiderSolitare.fs) contains all of the game logic. 
 Unit test and property based tests are in `SpiderSolitarTests`
 
-`MonteCarloTreeSearch.fs` contains and implementationf the [MCTS algorithm](https://en.wikipedia.org/wiki/Monte_Carlo_tree_search)
+[`MonteCarloTreeSearch.fs`](https://github.com/willsam100/fsharp-spider-solitaire/blob/Develop/SpiderSolitare/MonteCarloTreeSearch.fs) contains and implementationf the [MCTS algorithm](https://en.wikipedia.org/wiki/Monte_Carlo_tree_search)
 
-`Representation.fs` is an implementaiton for one-hot-encoding of the spider game. This is an ML industry standard for encoding data. 
+[`Representation.fs`](https://github.com/willsam100/fsharp-spider-solitaire/blob/Develop/SpiderSolitare/Representation.fs) is an implementaiton for one-hot-encoding of the spider game. This is an ML industry standard for encoding data. 
 
 ## Solving the Game:
 
 `Console` is the project that foucses on solving the game. 
-The `Console.fs` is the root file and cotains the entry point to program. 
+The [`Console.fs`](https://github.com/willsam100/fsharp-spider-solitaire/blob/Develop/Console/Console.fs) is the root file and cotains the entry point to program. 
 Running `dotnet run -- play 50` will kick of an MCTS solver to solve game number 50 where 50 is the seed number. 
 
 Tunning the params to play the game will be required. 
