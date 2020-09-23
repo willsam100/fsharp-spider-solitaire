@@ -64,7 +64,7 @@ type GameResult = {
     Progress: float list
 }
 
-let playGame log randomMoveThreshold brainsMover updateHistory iterationCount totalCount gameNumber = 
+let playGame log randomMoveThreshold brainsMover updateHistory iterationCount totalCount gameNumber: GameResult = 
 
     let r = Random(gameNumber)
     let gameToMetrics = new Dictionary<_, _>()
@@ -83,9 +83,9 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
         let foundWinningPath =
             if foundWinningPath then true
             else
-                searcher.SearchWithNN(iterationCount, root)
-                // searcher.SearchRandom(iterationCount, root)
-                // false
+                // searcher.SearchWithNN(iterationCount, root)
+                searcher.SearchRandom(iterationCount, root)
+                false
 
         let movesMade = float (totalCount - count)
         let r = randomMoveThreshold

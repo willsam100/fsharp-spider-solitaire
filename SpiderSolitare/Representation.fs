@@ -27,7 +27,7 @@ type ActionEncoder() =
 
     let moveToEncoding = 
         printfn "Reading encoding..."
-        let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotAction.csv"
+        let data = File.ReadAllLines "../onehotAction.csv"
         
         data 
         |> Array.map (fun row -> 
@@ -98,7 +98,11 @@ type ActionEncoder() =
             let fromColumn = moveString.[2] |> int32 |> Coord.parseColumn
             Move {Coords.Card = card; To = toColumn; From = fromColumn}
 
-    member __.Encode card = encodeMove card
+    member __.Encode card = 
+        try 
+            encodeMove card
+        with 
+        | e -> Exception(sprintf "Move:%A" card, e) |> raise
     member __.Decode encodedMove = decodeMove encodedMove
     member __.GetActionOutSize () = 
         moveToEncoding |> Map.toList |> List.head |> snd |> Array.length |> printfn "%d"
@@ -108,7 +112,7 @@ type CardEncoderKeyed() =
     let cardToEncode = 
         printfn "Reading card encoding..."
         // let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotCardKey.csv"
-        let data = File.ReadAllLines "/Users/willsam100/Desktop/onehotCardKey.csv"
+        let data = File.ReadAllLines "../onehotCardKey.csv"
         
         data 
         |> Array.map (fun (row: string) -> 
@@ -156,7 +160,8 @@ type CardEncoderKeyed() =
             encodingToCard |> Map.toList |> List.map (fst >> string) |> String.concat "," |> printfn "%s"
             raise e
 
-    member __.Encode card = encode card
+    member __.Encode card = 
+        try encode card with | e -> Exception(sprintf "Encode error: %A" card, e) |> raise
     member __.EmptyCard = ecodedEmtpyCard
     member __.DecodeCard card = decodeCard card
 
@@ -164,7 +169,7 @@ type CardEncoder() =
 
     let cardToEncode = 
         printfn "Reading card encoding..."
-        let data = File.ReadAllLines "/Users/willsam100/projects/gym/onehotCard.csv"
+        let data = File.ReadAllLines "../onehotCard.csv"
 
         data 
         |> Array.map (fun (row: string) -> 
@@ -339,4 +344,4 @@ let allMoves =
     |> List.map (fun (x,y) -> Move {To = x; From = y; Card = CardModule.create 1 S |> Option.get})
 
 
-allMoves |> List.map (fun x -> x = (x |> encodeMove |> decodeMove) )
+// allMoves |> List.map (fun x -> x = (x |> encodeMove |> decodeMove) )

@@ -134,6 +134,14 @@ module CardModule =
         }
         |> Seq.toList
 
+    let increment increment card = 
+        let value = getValue card + increment
+        let suit = getSuit card
+        match value with 
+        | 14 -> Card (1, suit)
+        | 0 -> Card (13, suit)
+        | _ -> Card (value, suit)
+
     let canAddCardToRun bottomCard topCard = 
         let (nB, sB) = getDetails bottomCard
         let (nT, sT) = getDetails topCard
@@ -262,6 +270,10 @@ module Tableau =
             | run, false -> run |> dropLastCard |> folder
 
         folder tableau.Visible 
+
+    let getCardsAfterRun tableau = 
+        let runCount = getRun tableau |> List.length
+        tableau.Visible |> List.skip runCount
 
     let addStockCard card tableau = 
         {tableau with Visible = validateRun (card :: tableau.Visible)}

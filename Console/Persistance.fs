@@ -130,5 +130,6 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
     //     mbP.Post (Input (gn, games))
 
     member this.Format() = 
-        Reformat.readAndFormatPolicy policyFile
+        // Reformat.readAndFormatPolicy policyFile
+        ()
         // Reformat.readAndFormatValue valueFile

@@ -473,6 +473,10 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
                             + (2.0 * Math.Pow(decay, depth) * score)
                 // printfn "Rollout - V:%f S:%f R:%f" b score reward   
                 reward // * float (Math.Max(siblingCount, 1))
+
+        let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
+            let pastGames = pastGames.[gameHashCode]
+            rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
         
         let expand (node: MutableNode<Game, MoveType>) =
             let getMoves game = 
@@ -522,7 +526,7 @@ type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set
             logger count totalCount root
             if count > 0 then
 //                printTreeWithDepth 1 gameToMetrics root
-                iteration (totalCount - count) 0. expand rollout pastGames gameToMetrics root
+                iteration (totalCount - count) 0. expand rolloutRandom pastGames gameToMetrics root
                 
                 match winningNode with
                 | None ->

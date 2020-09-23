@@ -92,11 +92,21 @@ let singleEncoded (g:string) =
 //     |> Array.collect (Array.map (fun x -> (if x >= 15 then 1 else x + increment) |> string))
 //     |> String.concat ","
     
-let shortGamePlusOne increment (g: string) = 
+let gamePlusOne increment (g: string) = 
     g.Split "," 
     |> Array.map Int32.Parse
     |> Array.map (fun x -> (if x + increment >= 15 || x = 1 then 1 else x + increment) |> string)
     |> String.concat ","
+
+let movePlusOne increment = function
+    | Flip f -> f |> Flip |> Some
+    | Stock -> Stock |> Some
+    | Move c -> 
+        let value = CardModule.getValue c.Card
+        match value, value + increment with 
+        | 12, 13 -> None // Queen to King is not a valid move. This will change to King -> Ace.
+        | 13, _ -> None // Move with Kings are questionable. A transformation may not be valid ie to an empty column
+        | _, _ -> { c with Card = CardModule.increment increment c.Card} |> Move |> Some
 
 let format96 (game:string) = 
     let game = game.Split ","
@@ -192,7 +202,7 @@ type BrainMoverServer(port) =
     let mutable p: Process = null
 
     let runPythonServer port = 
-        let startInfo = ProcessStartInfo("/Users/willsam100/projects/plaidML/flask_run.sh")
+        let startInfo = ProcessStartInfo("/Users/willsam100/projects/spider-ml/flask_run.sh")
         // let startInfo = ProcessStartInfo("bash")
 
         startInfo.RedirectStandardInput <- true
@@ -408,20 +418,26 @@ type BrainsMoverClient(port) =
 
             // printfn "Raw: %s" move
         
-            let m = move |> Int32.Parse  |> decodeMove
-            // printfn "Moves:"
-            // moves |> List.iter (printfn "%A")
-            // printfn "--"
-            // printfn "%A" m
+            // let m = move |> Int32.Parse |> decodeMove
+            // // printfn "Moves:"
+            // // moves |> List.iter (printfn "%A")
+            // // printfn "--"
+            // // printfn "%A" m
 
-            match m with 
-            | Move m ->
-                moves
-                |> List.filter (fun x -> x.To = m.To && x.From = m.From)
-                |> List.tryHead
-                |> Option.map (fun x -> Move x)
-                |> Option.defaultValue (Move m)
-            | x -> x            
+            // match m with 
+            // | Move m ->
+            //     moves
+            //     |> List.filter (fun x -> x.To = m.To && x.From = m.From)
+            //     |> List.tryHead
+            //     |> Option.map (fun x -> Move x)
+            //     |> Option.defaultValue (Move m)
+            // | x -> x            
+        move
+        |> Int32.Parse
+        |> MonteCarloTreeSearch.decodeMove 
+        |> Array.map string 
+        |> String.concat ""
+        |> moveEncoder.Decode
 
 
     interface MonteCarloTreeSearch.IBransMover with 
@@ -440,14 +456,14 @@ type BrainsMoverClient(port) =
                         let body = post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText
                         let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
 
-                        let moves = 
-                            game 
-                            |> GameMover.validMoves
-                            |> List.choose (function 
-                                | Move m -> Some m
-                                | _ -> None)
+                        // let moves = 
+                        //     game 
+                        //     |> GameMover.validMoves
+                        //     |> List.choose (function 
+                        //         | Move m -> Some m
+                        //         | _ -> None)
 
-                        Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove moves x, y)
+                        Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove [] x, y)
                     )
         
         member this.GetValue game = 

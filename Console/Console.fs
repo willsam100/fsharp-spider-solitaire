@@ -12,6 +12,12 @@ open SpiderSolitare.Game
 open System.Diagnostics
 open System.Drawing
 
+
+type AppMove = 
+    | GetMoves of AsyncReplyChannel<List<int * MoveType>>
+    | PlayMove of int * AsyncReplyChannel<GameResult>
+    | GetGame of AsyncReplyChannel<GameResult>
+
 type ISaver = 
     // abstract member SaveGameMoves: bool ->  int -> (int * string * int * string) list -> unit
     abstract member SaveGameMoves: bool ->  int -> (int * string * int) list -> unit
@@ -25,32 +31,6 @@ type RunConfig = {
     RandomMoveThreshold: float
     RandomDelta: float
 }
-
-let showMnist (imageData: byte array array) =
-
-    use image = new MagickImage(MagickColor.FromRgb(byte 0, byte  0, byte  0), 28, 28)            
-
-    image.Grayscale()
-
-    image.GetPixels() |> Seq.iter (fun pixel -> 
-        let b = imageData.[pixel.Y].[pixel.X]
-        pixel.Set([| b |] ) )
-
-    image.Write("/Users/willsam100/Desktop/image.png")
-
-    // use image = new MagickImage(MagickColor.FromRgb(byte 255, byte  45, byte  0), 10, 6)
-    
-    // image.GetPixels() |> Seq.iter (fun x -> x.Set([| byte 42; byte 45; byte 0   |]) )
-
-    // image.Write("/Users/willsam100/Desktop/image.png")
-    
-    let startInfo = ProcessStartInfo("open")
-    startInfo.RedirectStandardInput <- true
-    startInfo.RedirectStandardOutput <- true
-    startInfo.UseShellExecute <- false
-    startInfo.Arguments <- "/Users/willsam100/Desktop/image.png"
-    startInfo.WindowStyle <- ProcessWindowStyle.Hidden
-    Process.Start(startInfo) |> ignore
 
 let parse skip data = 
     data |> Array.skip skip |> Array.take 4 |> Array.rev |> fun x -> BitConverter.ToInt32(x, 0)
@@ -162,27 +142,25 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
 
         range 
         |> List.map (fun x -> 
-            match MctsSpiderGameLoop.playGame log config.RandomMoveThreshold brainsMover updateHistory config.MctsIterationCount config.MoveCount x with 
-            | gameResult -> 
+            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold brainsMover updateHistory config.MctsIterationCount config.MoveCount x
+            brainsMover.Flush()
 
-                brainsMover.Flush()
+            printfn "%A" gameResult.Game
+            printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f" gameResult.GameNumber (if gameResult.IsWin  then "WIN" else "LOST") gameResult.MovesMade
+            if List.isEmpty gameResult.Progress then 
+                printfn "No progres"
+            else                 
+                gameResult.Progress |> List.map (fun x -> sprintf "%.2f" x) |> String.concat "," |> printfn "%s"
 
-                printfn "%A" gameResult.Game
-                printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f" gameResult.GameNumber (if gameResult.IsWin  then "WIN" else "LOST") gameResult.MovesMade
-                if List.isEmpty gameResult.Progress then 
-                    printfn "No progres"
-                else                 
-                    gameResult.Progress |> List.map (fun x -> sprintf "%.2f" x) |> String.concat "," |> printfn "%s"
+            printfn ""                
 
-                printfn ""                
-
-                // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
-                if gameResult.History |> List.isEmpty |> not then 
-                    gameResult.History  
-                    |> List.map (fun (x,y,z,_) -> x,y,z)
-                    |> saver.SaveGameMoves gameResult.IsWin gameResult.GameNumber 
-                
-                gameResult.GameNumber, gameResult.IsWin )
+            // history |> List.map (fun x -> sprintf "%s,%b,%d" x isWin gameNumber) |> saver.SaveGameMoves)
+            if gameResult.History |> List.isEmpty |> not then 
+                gameResult.History  
+                |> List.map (fun (x,y,z,_) -> x,y,z)
+                |> saver.SaveGameMoves gameResult.IsWin gameResult.GameNumber 
+            
+            gameResult.GameNumber, gameResult.IsWin )
         |> fun xs -> 
             brain.Stop()
             xs
@@ -225,20 +203,20 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
 
 [<EntryPoint>]
 let main argv =
-    let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw-old.csv"
+    let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw.csv"
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
     let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
     let qLearningBk = "/Users/willsam100/Desktop/message.csv"
     let qlearner = QLearner(qLearning, qLearningBk)
 
     match argv with 
-    | [| "format-policy" |] -> Reformat.readAndFormatPolicy policyRaw
-    | [| "format-value" |] -> Reformat.readAndFormatValue valueRaw
-    | [| "format-moves" |] -> Reformat.readAndFormatValidMoves policyRaw
-    | [| "format-run" |] -> Reformat.readAndFormatRun valueRaw
-    | [| "format-all" |] ->  
-        Reformat.readAndFormatPolicy policyRaw
-        Reformat.readAndFormatValue valueRaw
+    // | [| "format-policy" |] -> Reformat.readAndFormatPolicy policyRaw
+    // | [| "format-value" |] -> Reformat.readAndFormatValue valueRaw
+    // | [| "format-moves" |] -> Reformat.readAndFormatValidMoves policyRaw
+    // | [| "format-run" |] -> Reformat.readAndFormatRun valueRaw
+    // | [| "format-all" |] ->  
+    //     Reformat.readAndFormatPolicy policyRaw
+    //     Reformat.readAndFormatValue valueRaw
 
     | [| "format-legacy" |] ->  
 
@@ -266,7 +244,7 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = 50
+            MctsIterationCount = 10
             MoveCount = 50
             LoopCount = 0
             RandomMoveThreshold = 1.0
@@ -286,13 +264,13 @@ let main argv =
 
         Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
-        let gameNumbers = List.replicate 1 [ 1 .. 100000 ] |> List.concat
-        let log = false
-        let parallelCount = 4
+        let gameNumbers = [50] // List.replicate 1 [ 1 .. 100000 ] |> List.concat
+        let log = true
+        let parallelCount = 1
         let config = {
             MctsIterationCount = 100
-            LoopCount = 20
-            MoveCount = 200
+            LoopCount = 0
+            MoveCount = 50
             RandomMoveThreshold = 0.9
             RandomDelta = 0.001
         }
@@ -330,135 +308,69 @@ let main argv =
         startInfo.WindowStyle <- ProcessWindowStyle.Hidden
         Process.Start(startInfo) |> ignore
 
-
-    | [| "mnist-play"; r |] -> 
-
-        let mnistTrainingData = File.ReadAllBytes "/Users/willsam100/Downloads/train-images-idx3-ubyte"
-        let imageData = parseIdxData "trainging data" mnistTrainingData 
-
-        let r = Random(int r)
-
-        let port = 5100
-
-        let b = BrainMoverServer(port)
-        b.StartServer()
-        try 
-            ()
-
-            let client = BrainsMoverClient(port) :> IBransMover
-
-            let image = 
-                imageData
-                |> Array.skip (r.Next(0, 10000))
-                |> Array.head
-
-            showMnist image
-
-            let image =
-                image
-                |> Array.concat
-                |> Array.map (int >> string)
-                |> String.concat ","
-
-            printfn "Image:\n%s" image
-
-            let cnnView = client.GetMnist image
-
-            // select height row
-            // then select column
-            // then select which image
-
-            cnnView.ProbsOne
-            |> List.splitInto cnnView.ProbsOneW
-            |> List.map (List.splitInto cnnView.ProbsOneH)
-            |> Visulization.createMnistImage "one" cnnView.ProbsOneC cnnView.ProbsOneH cnnView.ProbsOneW
-
-            cnnView.ProbsTwo
-            |> List.splitInto cnnView.ProbsTwoH
-            |> List.map (List.splitInto cnnView.ProbsTwoH)
-            |> Visulization.createMnistImage "two" cnnView.ProbsTwoC cnnView.ProbsTwoH cnnView.ProbsTwoH
-
-            cnnView.ProbsThree
-            |> List.splitInto cnnView.ProbsThreeH
-            |> List.map (List.splitInto cnnView.ProbsThreeH)
-            |> Visulization.createMnistImage "three" cnnView.ProbsThreeC cnnView.ProbsThreeH cnnView.ProbsThreeH
-
-            cnnView.ProbsFour
-            |> List.splitInto cnnView.ProbsFourH
-            |> List.map (List.splitInto cnnView.ProbsFourH)
-            |> Visulization.createMnistImage "five" cnnView.ProbsFourC cnnView.ProbsFourH cnnView.ProbsFourH
-
-            cnnView.ProbsFive
-            |> List.splitInto cnnView.ProbsFiveH
-            |> List.map (List.splitInto cnnView.ProbsFiveH)
-            |> Visulization.createMnistImage "fove" cnnView.ProbsFiveC cnnView.ProbsFiveH cnnView.ProbsFiveH            
-
-        finally
-            b.Stop()
-        () 
-
     | [| "balance"; file |] ->  
-        Reformat.reBalance file
+        // Reformat.reBalance file
+        Reformat.augment policyRaw
 
-    | [| "mnist"; |] -> 
+    // | [| "play-as-human"; gameNumber |]
 
-        let parseIdxLabel name data = 
-            let magic = parse 0 data
-            let images = parse 4 data
-            printfn "name:%s -> %d %d" name magic images
+    //     let myAgent rand = 
+    //         MailboxProcessor.Start<AppMove>(fun inbox -> 
 
-            data |> Array.skip 8
+    //             let rec loop gameResult = 
+    //                 async { 
+    //                     let! msg = inbox.Receive()
+    //                     match msg with
+    //                     | GetGame rc -> 
+    //                         gameResult |> rc.Reply
+    //                         return! loop gameResult
+    //                     | GetMoves rc -> 
+    //                         match gameResult with 
+    //                         | Lost g -> rc.Reply []
+    //                         | Won -> rc.Reply []
+    //                         | Continue (g, moves) -> moves |> List.indexed |> rc.Reply 
+    //                         return! loop gameResult
+    //                     | PlayMove(moveIndex, rc) -> 
+    //                         match gameResult with 
+    //                         | Continue (game,moves) -> 
+    //                             let move = moves |> List.indexed |> List.tryFind (fun (x,y) -> x = moveIndex)
+    //                             match move with 
+    //                             | None -> 
+    //                                 rc.Reply gameResult
+    //                                 return! loop gameResult
+    //                             | Some (_, move) -> 
+    //                                 let gameResult = GameMover.playMove move game
+    //                                 rc.Reply gameResult
+    //                                 return! loop gameResult
+    //                         | _ -> 
+    //                             rc.Reply gameResult
+    //                             return! loop gameResult
+    //                 }
 
-        let mnistTrainingData = File.ReadAllBytes "/Users/willsam100/Downloads/train-images-idx3-ubyte"
-        let mnistLabelData = File.ReadAllBytes "/Users/willsam100/Downloads/train-labels-idx1-ubyte"
-
-        let imageData = parseIdxData "trainging data" mnistTrainingData 
-        let labelData = parseIdxLabel "label data" mnistLabelData
-
-        printfn "%d %d" imageData.Length labelData.Length
-        let data = Array.zip imageData labelData
-
-
-        let outputFile = "/Users/willsam100/Desktop/mnist-value-net.csv"
-
-        data 
-        |> Array.take 42
-        |> Array.map (fun (x,v) -> 
-
-            let s = x |> Array.map (fun y -> string y.Length) |> String.concat ","
-            printfn "%d: %s %d" x.Length s v
-
-            let pixelData = x |> Array.concat |> Array.map (int >> string) |> String.concat ","
-
-            sprintf "%s,%s"  pixelData (v |> int |> string)
-        )
-        |> fun xs -> File.WriteAllLines (outputFile, xs)
-
-
-        // use image = new MagickImage(MagickColor.FromRgb(byte 0, byte  0, byte  0), 28, 28)            
-
-        // image.Grayscale()
-
-        // image.GetPixels() |> Seq.iter (fun pixel -> 
-        //     let b = imageData.[pixel.Y].[pixel.X]
-        //     pixel.Set([| b |] ) )
-
-        // image.Write("/Users/willsam100/Desktop/image.png")
-
-        // // use image = new MagickImage(MagickColor.FromRgb(byte 255, byte  45, byte  0), 10, 6)
+    //             loop (GameMover.startGame (Card.deck One) rand))
         
-        // // image.GetPixels() |> Seq.iter (fun x -> x.Set([| byte 42; byte 45; byte 0   |]) )
+    //     let start (gameAgent: MailboxProcessor<AppMove>) = 
+    //         gameAgent.PostAndReply GetGame |> printGameResult |> printfn "%s"
 
-        // // image.Write("/Users/willsam100/Desktop/image.png")
-        
-        // let startInfo = ProcessStartInfo("open")
-        // startInfo.RedirectStandardInput <- true
-        // startInfo.RedirectStandardOutput <- true
-        // startInfo.UseShellExecute <- false
-        // startInfo.Arguments <- "/Users/willsam100/Desktop/image.png"
-        // startInfo.WindowStyle <- ProcessWindowStyle.Hidden
-        // Process.Start(startInfo) |> ignore
-        
+    //     let playMoveAtIndex (gameAgent: MailboxProcessor<AppMove>) indexMove = 
+    //         printfn "Playing: %d" indexMove
+    //         (fun rc -> PlayMove(indexMove, rc))
+    //         |> gameAgent.PostAndReply
+
+    //     let playAndPrint gameAgent indexMove = 
+    //         playMoveAtIndex gameAgent indexMove
+    //         |> (fun x -> printfn "Scored: %f" <| GameOperations.getReward x; x)
+    //         |> printGameResult
+    //         |> printfn "%s"
+
+    //     let getGame (gameAgent: MailboxProcessor<AppMove>) = 
+    //         gameAgent.PostAndReply GetGame 
+
+
+    // TODO: implement the game loop here, so that a human can play in the terminal. 
+
+
+    //     0
         
     | _ -> 
         printfn "Bad option. Read the code for help :)"
