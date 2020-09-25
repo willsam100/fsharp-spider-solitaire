@@ -82,15 +82,16 @@ let train network load epochs =
     train.Start() |> ignore
     train
 
+
 type QLearner(qLearning, messageFile) = 
     let mutable policy: Process = null
     let mutable value: Process = null
 
-    // member this.WaitForTraingingToStart() = 
+    member this.WaitForTraingingToStart() = 
 
-    //     while File.Exists messageFile do 
-    //         System.Threading.Thread.Sleep (TimeSpan.FromSeconds 0.5)
-    //     File.WriteAllText (messageFile,"\n")
+        while File.Exists messageFile do 
+            System.Threading.Thread.Sleep (TimeSpan.FromSeconds 0.5)
+        File.WriteAllText (messageFile,"\n")
 
     member private this.CanStartTraining() = 
         if policy |> isNull |> not || value |> isNull |> not then false 
@@ -122,7 +123,7 @@ type QLearner(qLearning, messageFile) =
         File.Delete messageFile
 
 
-let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNumbers = 
+let rec run log (saver: ISaver) parallelCount config gameNumbers = 
 
     let updateHistory parentGame game move history = 
         let gameAndBestMove = 
@@ -192,8 +193,8 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
         |> List.toArray    
         |> Task.WhenAll   
 
-    if not log then 
-        qlearner.Learn()
+    // if not log then 
+    //     qlearner.Learn()
 
     let results =    
         tasks 
@@ -208,13 +209,13 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
     let winningRate: float = (results |> Array.filter snd |> Array.length |> float) / (float parallelCount)
     printfn "WINING RATE: %.2f" winningRate
     printfn "Games lost: %s" (results |> Array.filter (snd >> not) |> Array.map (fst >> string) |> String.concat ",")
-    qlearner.StopTraining()
+    // qlearner.StopTraining()
     saver.Finish()
 
     if config.LoopCount > 0 then 
         printfn "Running policy: %d" config.LoopCount
         let config = {config with RandomMoveThreshold = Math.Min(0.99, config.RandomMoveThreshold + config.RandomDelta)}
-        run qlearner log (saver: ISaver) parallelCount {config with LoopCount = config.LoopCount - 1} gameNumbers
+        run log (saver: ISaver) parallelCount {config with LoopCount = config.LoopCount - 1} gameNumbers
 
 [<EntryPoint>]
 let main argv =
@@ -222,7 +223,7 @@ let main argv =
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
     let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
     let qLearningBk = "/Users/willsam100/Desktop/message.csv"
-    let qlearner = QLearner(qLearning, qLearningBk)
+    // let qlearner = QLearner(qLearning, qLearningBk)
 
     match argv with 
     // | [| "format-policy" |] -> Reformat.readAndFormatPolicy policyRaw
@@ -273,7 +274,7 @@ let main argv =
                 member this.Finish() = ()
                 member this.Format() = () }
 
-        run qlearner true saver parallelCount config gameNumbers
+        run true saver parallelCount config gameNumbers
 
 
     | [| "generate" |] -> 
@@ -299,7 +300,7 @@ let main argv =
                 member this.Finish() = s.Finish()
                 member this.Format() = s.Format() }
         
-        run qlearner log saver parallelCount config gameNumbers
+        run log saver parallelCount config gameNumbers
 
         // if not log then 
         //     printfn "Training..."
