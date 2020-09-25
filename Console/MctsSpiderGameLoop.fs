@@ -31,7 +31,7 @@ let playRandomMove move (node: MutableNode<Game, MoveType>) =
         MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some true, 0)
 
 let r = Random()
-let playMove log randomness gameToMetrics (root: MutableNode<'a, 'b>) t n  = 
+let playMove log randomness getMetrics (root: MutableNode<'a, 'b>) t n  = 
 
     if root.Children.IsEmpty then 
         // This means that the NN suggested a move that had already been played ie a loop. 
@@ -41,7 +41,7 @@ let playMove log randomness gameToMetrics (root: MutableNode<'a, 'b>) t n  =
         let v = r.NextDouble()
         if v < randomness then
             if log then  printfn "Playing best move"
-            let nextNode = root.Children |> List.maxBy (getMetrics gameToMetrics >> snd) 
+            let nextNode = root.Children |> List.maxBy (getMetrics >> snd) 
             // match nextNode.Children with 
             // | [] when nextNode.TerminalValue = None -> nextNode |> Some |> Error
             //  | _ -> 
@@ -64,32 +64,31 @@ type GameResult = {
     Progress: float list
 }
 
-let playGame log randomMoveThreshold brainsMover updateHistory iterationCount totalCount gameNumber: GameResult = 
+let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterationCount totalCount gameNumber: GameResult = 
 
     let r = Random(gameNumber)
-    let gameToMetrics = new Dictionary<_, _>()
     let deck = Game.CardModule.deck Game.OneSuit //|> List.take (13 * 2)
     let game = Game.GameMover.createValidGame deck r |> Game.GameMover.unHideGame
     
-    let pastGames = Dictionary<_, _>()
-    let searcher = Searcher(log, brainsMover, pastGames, gameToMetrics)
+    // let pastGames = Dictionary<_, _>()
+    // let searcher = Searcher(log, brainsMover, pastGames, gameToMetrics)
     let root = MutableNode(game, 1.0, 0., None, 1, None, None, 0)
-    
-    pastGames.[root.GameHashCode] <-Set.empty
+
+    searcher.Init root
 
     let rec loop foundWinningPath history count root game =
-        let (t,n) = getMetrics gameToMetrics root
+        let (t,n) = searcher.GetMetrics root
         
         let foundWinningPath =
             if foundWinningPath then true
             else
                 // searcher.SearchWithNN(iterationCount, root)
-                searcher.SearchRandom(iterationCount, root)
-                false
+                searcher.Search iterationCount root
+                // false
 
         let movesMade = float (totalCount - count)
         let r = randomMoveThreshold
-        match playMove log r gameToMetrics root t n with 
+        match playMove log r searcher.GetMetrics root t n with 
         | Error _ ->   
             // we don't actually know why we are here. Some how we coudln't see that this was a dead state
             // Most likely this is the cause of a loop - we have already visited this state. 
@@ -126,7 +125,8 @@ let playGame log randomMoveThreshold brainsMover updateHistory iterationCount to
                 else    
                     if log then 
                         if false then 
-                            visulizeColumnPrediction brainsMover nMove
+                            searcher.BrainServer |> Option.iter (fun brainsMover -> 
+                                visulizeColumnPrediction brainsMover nMove )
 
                         printfn "%A" nMove.Game                        
                         printfn "%A" nMove.Move.Value

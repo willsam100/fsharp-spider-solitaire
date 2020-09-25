@@ -389,159 +389,354 @@ let getDepth node =
         | Some x -> loop (depth + 1) x
 
     loop 0 node |> float
-    
-type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set>, gameToMetrics) =
-    let mutable winningNode = None
-    let mutable progress: float list = []
-    
-    let logger count totalCount root =
-        let (t,n) = getMetrics gameToMetrics root
-        if count <= 0 then 
-            if log then 
-                // Console.SetCursorPosition (0, Console.CursorTop)
-                let progress = 
-                    let count = totalCount - count |> float
-                    let progress = count / float totalCount
-                    progress * 100.
-                List.replicate 100 " " |> String.concat "" |> Console.WriteLine
-                sprintf "%.2f%% P: %.2f%% T: %.10f  N: %.0f TC: %d" progress ((t / n) * 100.) t n totalCount |> Console.WriteLine
-                
-        else 
-            // if count % 100 = 0 then 
-            if log then 
-                Console.SetCursorPosition (0, Console.CursorTop)
-                let progress = 
-                    let count = totalCount - count |> float
-                    let progress = count / float totalCount
-                    progress * 100.
-                sprintf "%.2f%% P: %.2f%% T: %.10f  N: %.0f TC: %d" progress ((t / n) * 100.) t n totalCount |> Console.Write
-    
-    
-    member this.SearchRandom(totalCount, (root: MutableNode<Game, MoveType>)) =
-        
-        let getMovesRandom game = 
-            let moves = GameMover.validMoves game
+
+
+let logger log gameToMetrics count totalCount root =
+    let (t,n) = getMetrics gameToMetrics root
+    if count <= 0 then 
+        if log then 
+            // Console.SetCursorPosition (0, Console.CursorTop)
+            let progress = 
+                let count = totalCount - count |> float
+                let progress = count / float totalCount
+                progress * 100.
+            List.replicate 100 " " |> String.concat "" |> Console.WriteLine
+            sprintf "%.2f%% P: %.2f%% T: %.10f  N: %.0f TC: %d" progress ((t / n) * 100.) t n totalCount |> Console.WriteLine
             
-            moves |> List.map (fun x ->
-                
-                let g, isTerminal = 
-                    match GameMover.playMove x game with 
-                    | Game.Continue (g,_) -> g, None
-                    | Game.Lost g -> g, Some false
-                    | Game.Won g -> g, Some true
-                
-                g, isTerminal, x, Math.Max(reward game * 2., 1.0)) 
-                    
-        let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
-            let pastGames = pastGames.[gameHashCode]
-            rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
-            
-        let expandRandom node =
-            expandNode getMovesRandom pastGames node |> List.distinctBy (fun x -> reward x.Game)
-        
-        let rec reSearch count = 
-            logger count totalCount root
-            if count > 0 then 
-                iteration (totalCount - count) 0. expandRandom rolloutRandom pastGames gameToMetrics root
-                reSearch (count - 1)
-        reSearch totalCount
+    else 
+        // if count % 100 = 0 then 
+        if log then 
+            Console.SetCursorPosition (0, Console.CursorTop)
+            let progress = 
+                let count = totalCount - count |> float
+                let progress = count / float totalCount
+                progress * 100.
+            sprintf "%.2f%% P: %.2f%% T: %.10f  N: %.0f TC: %d" progress ((t / n) * 100.) t n totalCount |> Console.Write
 
-    member this.GetProgress() = 
-        progress |> List.rev
-        
-    member this.SearchWithNN(totalCount, (root: MutableNode<Game, MoveType>)) =
-        
-        let rollout (game: Game, gameHashCode: int, siblingCount: int, depthSearch) = 
-            let depth = pastGames.[gameHashCode].Count |> float
-            let cardCount = game |> Game.Game.getAllTabs |> List.sumBy Tableau.length
+type ISearcher = 
+    abstract member Search:  totalCount:int -> root:MutableNode<Game, MoveType> -> bool
+    abstract member GetProgress: unit ->  float list
+    abstract member BrainServer: IBransMover option
+    abstract member Init: MutableNode<Game,MoveType> -> unit 
+    abstract member GetMetrics: MutableNode<'a, 'b> -> float * float
 
-            match Game.isComplete game with 
-            | true ->
-                if cardCount = 0 then
-                    winningNode <- Some gameHashCode
-                    winningNodeReward
-                else 0.
-                    
-            | false ->
+type SearcherRandomer(log) = 
+    let pastGames = Dictionary<_, _>()
+    let gameToMetrics = new Dictionary<_, _>()
+    let logger = logger log gameToMetrics
 
-                let decay = 0.9 //if cardCount > 26 then 0.9 else 0.2 
-                let b = brainsMover.GetValue game
-                let score = reward game
-                let reward =
-                        
-                        Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
-                            + (2.0 * Math.Pow(decay, depth) * score)
-                // printfn "Rollout - V:%f S:%f R:%f" b score reward   
-                reward // * float (Math.Max(siblingCount, 1))
+    interface ISearcher with 
+        member this.Init root = 
+            pastGames.[root.GameHashCode] <-Set.empty
 
-        let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
-            let pastGames = pastGames.[gameHashCode]
-            rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
-        
-        let expand (node: MutableNode<Game, MoveType>) =
-            let getMoves game = 
+        member this.GetProgress() = []
+        member ths.BrainServer = None
+
+        member this.GetMetrics(node: MutableNode<'a, 'b>) = 
+            getMetrics gameToMetrics node
+
+        member this.Search totalCount root = 
+            let getMovesRandom game = 
                 let moves = GameMover.validMoves game
-                let bestMoves = 
-                    brainsMover.GetBestMove game
-                    |> List.filter (fun (move,_) -> moves |> List.contains move)
-
-                if moves.Length > bestMoves.Length then
-                    progress <- float (moves.Length - bestMoves.Length) / float moves.Length :: progress
-
-                // bestMoves  |> List.iter (fun (m,p) -> printfn "%A, %.4f" m p)
-
-                let bestMoves = 
-
-                    List.fold (fun bestMoves validMove -> 
-                        if bestMoves |> List.map fst |> List.contains validMove then 
-                            bestMoves
-                        else 
-                            (validMove, 0.5) :: bestMoves
-                    ) bestMoves moves
-
-                // printfn "bestMoves"
+                
+                moves |> List.map (fun x ->
                     
-                // if moves.Length <> bestMoves.Length then    
-                //     printfn "We have been missing a move in the neural network"
-                //     Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
-
-                // if log then 
-                //     printfn "BestMoves: "
-                //     bestMoves |> List.sortByDescending snd |> List.map string |> String.concat "," |> printfn "%s"
-
-                bestMoves
-                |> List.map (fun (x,y) ->
                     let g, isTerminal = 
                         match GameMover.playMove x game with 
                         | Game.Continue (g,_) -> g, None
                         | Game.Lost g -> g, Some false
                         | Game.Won g -> g, Some true
                     
-                    g, isTerminal, x, y)
-            
-            expandNode getMoves pastGames node
-            |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
-        
-        let rec reSearch count = 
-            logger count totalCount root
-            if count > 0 then
-//                printTreeWithDepth 1 gameToMetrics root
-                iteration (totalCount - count) 0. expand rolloutRandom pastGames gameToMetrics root
+                    g, isTerminal, x, Math.Max(reward game * 2., 1.0)) 
+                        
+            let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
+                let pastGames = pastGames.[gameHashCode]
+                rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
                 
-                match winningNode with
-                | None ->
+            let expandRandom node =
+                expandNode getMovesRandom pastGames node |> List.distinctBy (fun x -> reward x.Game)
+            
+            let rec reSearch count = 
+                logger count totalCount root
+                if count > 0 then 
+                    iteration (totalCount - count) 0. expandRandom rolloutRandom pastGames gameToMetrics root
                     reSearch (count - 1)
-                | Some gameHashCode ->
-                    true
-            else false
+            reSearch totalCount
+            false
 
-    //    let (t,n) = getMetrics gameToMetrics root
-    //    // if log then 
-    //    if t > 100. && n > 100. then 
-    //        () 
-    //    else 
-    //        if t / n < 0.01 && n > 2000. then 
-    //            reSearch (totalCount / 4) 
-    //        else 
-        reSearch totalCount
+type SearcherWithNeuralNetwork(brainsMover: IBransMover, log) =
+    let mutable winningNode = None
+    let mutable progress: float list = []
+    let pastGames = Dictionary<_, _>()
+    let gameToMetrics = new Dictionary<_, _>()
+    let logger = logger log gameToMetrics
+
+    interface ISearcher with 
+
+        member this.Init root = 
+            pastGames.[root.GameHashCode] <-Set.empty
+
+        member this.GetProgress() = []
+        member ths.BrainServer = None
+
+        member this.GetMetrics(node: MutableNode<'a, 'b>) = 
+            getMetrics gameToMetrics node
+
+        member this.Search totalCount root = 
+
+            let rollout (game: Game, gameHashCode: int, siblingCount: int, depthSearch) = 
+                let depth = pastGames.[gameHashCode].Count |> float
+                let cardCount = game |> Game.Game.getAllTabs |> List.sumBy Tableau.length
+
+                match Game.isComplete game with 
+                | true ->
+                    if cardCount = 0 then
+                        winningNode <- Some gameHashCode
+                        winningNodeReward
+                    else 0.
+                        
+                | false ->
+
+                    let decay = 0.9 //if cardCount > 26 then 0.9 else 0.2 
+                    let b = brainsMover.GetValue game
+                    let score = reward game
+                    let reward =
+                            
+                            Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
+                                + (2.0 * Math.Pow(decay, depth) * score)
+                    // printfn "Rollout - V:%f S:%f R:%f" b score reward   
+                    reward // * float (Math.Max(siblingCount, 1))
+
+            let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
+                let pastGames = pastGames.[gameHashCode]
+                rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
+            
+            let expand (node: MutableNode<Game, MoveType>) =
+                let getMoves game = 
+                    let moves = GameMover.validMoves game
+                    let bestMoves = 
+                        brainsMover.GetBestMove game
+                        |> List.filter (fun (move,_) -> moves |> List.contains move)
+
+                    if moves.Length > bestMoves.Length then
+                        progress <- float (moves.Length - bestMoves.Length) / float moves.Length :: progress
+
+                    // bestMoves  |> List.iter (fun (m,p) -> printfn "%A, %.4f" m p)
+
+                    let bestMoves = 
+
+                        List.fold (fun bestMoves validMove -> 
+                            if bestMoves |> List.map fst |> List.contains validMove then 
+                                bestMoves
+                            else 
+                                (validMove, 0.5) :: bestMoves
+                        ) bestMoves moves
+
+                    // printfn "bestMoves"
+                        
+                    // if moves.Length <> bestMoves.Length then    
+                    //     printfn "We have been missing a move in the neural network"
+                    //     Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
+
+                    // if log then 
+                    //     printfn "BestMoves: "
+                    //     bestMoves |> List.sortByDescending snd |> List.map string |> String.concat "," |> printfn "%s"
+
+                    bestMoves
+                    |> List.map (fun (x,y) ->
+                        let g, isTerminal = 
+                            match GameMover.playMove x game with 
+                            | Game.Continue (g,_) -> g, None
+                            | Game.Lost g -> g, Some false
+                            | Game.Won g -> g, Some true
+                        
+                        g, isTerminal, x, y)
+                
+                expandNode getMoves pastGames node
+                |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
+            
+            let rec reSearch count = 
+                logger count totalCount root
+                if count > 0 then
+    //                printTreeWithDepth 1 gameToMetrics root
+                    iteration (totalCount - count) 0. expand rolloutRandom pastGames gameToMetrics root
+                    
+                    match winningNode with
+                    | None ->
+                        reSearch (count - 1)
+                    | Some gameHashCode ->
+                        true
+                else false
+
+        //    let (t,n) = getMetrics gameToMetrics root
+        //    // if log then 
+        //    if t > 100. && n > 100. then 
+        //        () 
+        //    else 
+        //        if t / n < 0.01 && n > 2000. then 
+        //            reSearch (totalCount / 4) 
+        //        else 
+            reSearch totalCount
+
+
+
+
+
+
+    
+// type Searcher(log, brainsMover: IBransMover, pastGames: IDictionary<int, int Set>, gameToMetrics) =
+//     let mutable winningNode = None
+//     let mutable progress: float list = []
+//     let pastGames = Dictionary<_, _>()
+    
+//     let logger count totalCount root =
+//         let (t,n) = getMetrics gameToMetrics root
+//         if count <= 0 then 
+//             if log then 
+//                 // Console.SetCursorPosition (0, Console.CursorTop)
+//                 let progress = 
+//                     let count = totalCount - count |> float
+//                     let progress = count / float totalCount
+//                     progress * 100.
+//                 List.replicate 100 " " |> String.concat "" |> Console.WriteLine
+//                 sprintf "%.2f%% P: %.2f%% T: %.10f  N: %.0f TC: %d" progress ((t / n) * 100.) t n totalCount |> Console.WriteLine
+                
+//         else 
+//             // if count % 100 = 0 then 
+//             if log then 
+//                 Console.SetCursorPosition (0, Console.CursorTop)
+//                 let progress = 
+//                     let count = totalCount - count |> float
+//                     let progress = count / float totalCount
+//                     progress * 100.
+//                 sprintf "%.2f%% P: %.2f%% T: %.10f  N: %.0f TC: %d" progress ((t / n) * 100.) t n totalCount |> Console.Write
+    
+    
+//     member this.SearchRandom(totalCount, (root: MutableNode<Game, MoveType>)) =
+        
+//         let getMovesRandom game = 
+//             let moves = GameMover.validMoves game
+            
+//             moves |> List.map (fun x ->
+                
+//                 let g, isTerminal = 
+//                     match GameMover.playMove x game with 
+//                     | Game.Continue (g,_) -> g, None
+//                     | Game.Lost g -> g, Some false
+//                     | Game.Won g -> g, Some true
+                
+//                 g, isTerminal, x, Math.Max(reward game * 2., 1.0)) 
+                    
+//         let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
+//             let pastGames = pastGames.[gameHashCode]
+//             rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
+            
+//         let expandRandom node =
+//             expandNode getMovesRandom pastGames node |> List.distinctBy (fun x -> reward x.Game)
+        
+//         let rec reSearch count = 
+//             logger count totalCount root
+//             if count > 0 then 
+//                 iteration (totalCount - count) 0. expandRandom rolloutRandom pastGames gameToMetrics root
+//                 reSearch (count - 1)
+//         reSearch totalCount
+
+//     member this.GetProgress() = 
+//         progress |> List.rev
+        
+//     member this.SearchWithNN(totalCount, (root: MutableNode<Game, MoveType>)) =
+        
+//         let rollout (game: Game, gameHashCode: int, siblingCount: int, depthSearch) = 
+//             let depth = pastGames.[gameHashCode].Count |> float
+//             let cardCount = game |> Game.Game.getAllTabs |> List.sumBy Tableau.length
+
+//             match Game.isComplete game with 
+//             | true ->
+//                 if cardCount = 0 then
+//                     winningNode <- Some gameHashCode
+//                     winningNodeReward
+//                 else 0.
+                    
+//             | false ->
+
+//                 let decay = 0.9 //if cardCount > 26 then 0.9 else 0.2 
+//                 let b = brainsMover.GetValue game
+//                 let score = reward game
+//                 let reward =
+                        
+//                         Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
+//                             + (2.0 * Math.Pow(decay, depth) * score)
+//                 // printfn "Rollout - V:%f S:%f R:%f" b score reward   
+//                 reward // * float (Math.Max(siblingCount, 1))
+
+//         let rolloutRandom (game, gameHashCode, siblingCount: int, depth) =
+//             let pastGames = pastGames.[gameHashCode]
+//             rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
+        
+//         let expand (node: MutableNode<Game, MoveType>) =
+//             let getMoves game = 
+//                 let moves = GameMover.validMoves game
+//                 let bestMoves = 
+//                     brainsMover.GetBestMove game
+//                     |> List.filter (fun (move,_) -> moves |> List.contains move)
+
+//                 if moves.Length > bestMoves.Length then
+//                     progress <- float (moves.Length - bestMoves.Length) / float moves.Length :: progress
+
+//                 // bestMoves  |> List.iter (fun (m,p) -> printfn "%A, %.4f" m p)
+
+//                 let bestMoves = 
+
+//                     List.fold (fun bestMoves validMove -> 
+//                         if bestMoves |> List.map fst |> List.contains validMove then 
+//                             bestMoves
+//                         else 
+//                             (validMove, 0.5) :: bestMoves
+//                     ) bestMoves moves
+
+//                 // printfn "bestMoves"
+                    
+//                 // if moves.Length <> bestMoves.Length then    
+//                 //     printfn "We have been missing a move in the neural network"
+//                 //     Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
+
+//                 // if log then 
+//                 //     printfn "BestMoves: "
+//                 //     bestMoves |> List.sortByDescending snd |> List.map string |> String.concat "," |> printfn "%s"
+
+//                 bestMoves
+//                 |> List.map (fun (x,y) ->
+//                     let g, isTerminal = 
+//                         match GameMover.playMove x game with 
+//                         | Game.Continue (g,_) -> g, None
+//                         | Game.Lost g -> g, Some false
+//                         | Game.Won g -> g, Some true
+                    
+//                     g, isTerminal, x, y)
+            
+//             expandNode getMoves pastGames node
+//             |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
+        
+//         let rec reSearch count = 
+//             logger count totalCount root
+//             if count > 0 then
+// //                printTreeWithDepth 1 gameToMetrics root
+//                 iteration (totalCount - count) 0. expand rolloutRandom pastGames gameToMetrics root
+                
+//                 match winningNode with
+//                 | None ->
+//                     reSearch (count - 1)
+//                 | Some gameHashCode ->
+//                     true
+//             else false
+
+//     //    let (t,n) = getMetrics gameToMetrics root
+//     //    // if log then 
+//     //    if t > 100. && n > 100. then 
+//     //        () 
+//     //    else 
+//     //        if t / n < 0.01 && n > 2000. then 
+//     //            reSearch (totalCount / 4) 
+//     //        else 
+//         reSearch totalCount
     

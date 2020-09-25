@@ -24,12 +24,18 @@ type ISaver =
     abstract member Finish: unit -> unit
     abstract member Format: unit -> unit
 
+
+type MachineLearningApproach = 
+    | RadnomMcts
+    | MctsWithRestApi
+
 type RunConfig = {
     MctsIterationCount: int 
     LoopCount: int
     MoveCount: int
     RandomMoveThreshold: float
     RandomDelta: float
+    MachineLearningApproach: MachineLearningApproach
 }
 
 let parse skip data = 
@@ -136,14 +142,22 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
         loop [] [node]
 
     let playGamesForRange port range = 
+
         let brain = BrainMoverServer(port)
-        brain.StartServer()
-        let brainsMover = BrainsMoverClient(port) :> IBransMover
+        let searcher = 
+            match config.MachineLearningApproach with 
+            | MctsWithRestApi ->    
+                
+                brain.StartServer()
+                let brainsMover = BrainsMoverClient(port) :> IBransMover
+                SearcherWithNeuralNetwork(brainsMover, log) :> ISearcher
+
+            | RadnomMcts -> SearcherRandomer(log)  :> ISearcher
 
         range 
         |> List.map (fun x -> 
-            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold brainsMover updateHistory config.MctsIterationCount config.MoveCount x
-            brainsMover.Flush()
+            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher updateHistory config.MctsIterationCount config.MoveCount x
+            searcher.BrainServer |> Option.iter (fun brainsMover -> brainsMover.Flush())
 
             printfn "%A" gameResult.Game
             printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f" gameResult.GameNumber (if gameResult.IsWin  then "WIN" else "LOST") gameResult.MovesMade
@@ -163,6 +177,7 @@ let rec run (qlearner: QLearner) log (saver: ISaver) parallelCount config gameNu
             gameResult.GameNumber, gameResult.IsWin )
         |> fun xs -> 
             brain.Stop()
+            searcher.BrainServer |> Option.iter (fun brainsMover -> brainsMover.Flush())
             xs
 
     let tasks = 
@@ -249,6 +264,7 @@ let main argv =
             LoopCount = 0
             RandomMoveThreshold = 1.0
             RandomDelta = 0.
+            MachineLearningApproach = MachineLearningApproach.RadnomMcts
         }
 
         let saver = 
@@ -273,6 +289,7 @@ let main argv =
             MoveCount = 50
             RandomMoveThreshold = 0.9
             RandomDelta = 0.001
+            MachineLearningApproach = MachineLearningApproach.RadnomMcts
         }
 
         let saver = 
