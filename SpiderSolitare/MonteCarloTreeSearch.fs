@@ -168,8 +168,8 @@ let reward game =
         (float suitCompleted + x) * 0.0025
 
 
-let encodeGame game = 
-    game |> encodeKeyGame cardEncoder |> Seq.map string |> String.concat ","
+let encodeGame size game = 
+    game |> encodeKeyGame size cardEncoder |> Seq.take (13 * 10) |> Seq.map string |> String.concat ","
 
 
 let getRandomMove pastGames game = 
@@ -329,6 +329,8 @@ let iteration (trialCount: int) depth expandNode rollout (pastGames: IDictionary
         
         match nextMove parentVisitCount metrics with 
         | [] ->
+
+
             
             match node.TerminalValue with 
             | Some _ ->
@@ -352,7 +354,6 @@ let iteration (trialCount: int) depth expandNode rollout (pastGames: IDictionary
                     let value = 0.
     //                    let nodes = pastGames.[node.GameHashCode] |> Set.add node.GameHashCode
                     setParentsValues gameToMetrics node value
-
                 | _ ->
                     node.Children <- leaves
                     loop (depth + 1.) node
@@ -454,7 +455,7 @@ type SearcherRandomer(log) =
                 rolloutRandom pastGames siblingCount (Set.count pastGames |> float) depth game
                 
             let expandRandom node =
-                expandNode getMovesRandom pastGames node |> List.distinctBy (fun x -> reward x.Game)
+                expandNode getMovesRandom pastGames node //|> List.distinctBy (fun x -> reward x.Game)
             
             let rec reSearch count = 
                 logger count totalCount root
@@ -524,23 +525,12 @@ type SearcherWithNeuralNetwork(brainsMover: IBransMover, log) =
                     // bestMoves  |> List.iter (fun (m,p) -> printfn "%A, %.4f" m p)
 
                     let bestMoves = 
-
                         List.fold (fun bestMoves validMove -> 
                             if bestMoves |> List.map fst |> List.contains validMove then 
                                 bestMoves
                             else 
-                                (validMove, 0.5) :: bestMoves
+                                (validMove, 0.001) :: bestMoves
                         ) bestMoves moves
-
-                    // printfn "bestMoves"
-                        
-                    // if moves.Length <> bestMoves.Length then    
-                    //     printfn "We have been missing a move in the neural network"
-                    //     Set.difference (Set.ofList moves) (bestMoves |> List.map fst |> Set.ofList) |> Set.toList |> printfn "%A"
-
-                    // if log then 
-                    //     printfn "BestMoves: "
-                    //     bestMoves |> List.sortByDescending snd |> List.map string |> String.concat "," |> printfn "%s"
 
                     bestMoves
                     |> List.map (fun (x,y) ->
@@ -553,7 +543,7 @@ type SearcherWithNeuralNetwork(brainsMover: IBransMover, log) =
                         g, isTerminal, x, y)
                 
                 expandNode getMoves pastGames node
-                |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
+                // |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
             
             let rec reSearch count = 
                 logger count totalCount root

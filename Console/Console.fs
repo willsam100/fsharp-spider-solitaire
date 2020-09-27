@@ -10,8 +10,8 @@ open ImageMagick
 open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Game
 open System.Diagnostics
-open System.Drawing
-
+open SpiderSolitare.Operations
+open SpiderSolitare.Operations.App
 
 type AppMove = 
     | GetMoves of AsyncReplyChannel<List<int * MoveType>>
@@ -128,9 +128,9 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
     let updateHistory parentGame game move history = 
         let gameAndBestMove = 
             (List.length history + 1), 
-            (parentGame  |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock), 
+            (parentGame  |> Representation.encodeKeyGame 26 cardEncoder |> Seq.map string |> String.concat ","), 
             (moveEncoder.Encode move |> encodeMove),
-            (game |> Representation.encodeKeyGame cardEncoder |> Seq.map string |> String.concat "," |> format26Stock)
+            (game |> Representation.encodeKeyGame 26 cardEncoder |> Seq.map string |> String.concat ",")
         gameAndBestMove :: history
 
     let getGames node =
@@ -142,7 +142,7 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 
         loop [] [node]
 
-    let playGamesForRange port range = 
+    let playGamesForRange port gameNumbers = 
 
         let brain = BrainMoverServer(port)
         let searcher = 
@@ -155,9 +155,9 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 
             | RadnomMcts -> SearcherRandomer(log)  :> ISearcher
 
-        range 
-        |> List.map (fun x -> 
-            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher updateHistory config.MctsIterationCount config.MoveCount x
+        gameNumbers 
+        |> List.map (fun gameNumber -> 
+            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher updateHistory config.MctsIterationCount config.MoveCount gameNumber
             searcher.BrainServer |> Option.iter (fun brainsMover -> brainsMover.Flush())
 
             printfn "%A" gameResult.Game
@@ -186,7 +186,6 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
         |> List.toArray
         |> fun x -> Array.shuffle x; x
         |> Array.toList
-        |> List.take parallelCount        
         |> List.splitInto parallelCount
         |> List.mapi (fun i x -> 5100 + i * 2, x)
         |> List.map (fun (port, range) -> Task.Run(fun () ->  playGamesForRange port range) )
@@ -219,7 +218,8 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 
 [<EntryPoint>]
 let main argv =
-    let policyRaw = "/Users/willsam100/Desktop/spider-policy-raw.csv"
+    let prefix = "/Users/willsam100/Desktop/spider-data/"
+    let policyRaw = sprintf "%s/spider-policy-raw-%d.csv" prefix
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
     let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
     let qLearningBk = "/Users/willsam100/Desktop/message.csv"
@@ -234,24 +234,24 @@ let main argv =
     //     Reformat.readAndFormatPolicy policyRaw
     //     Reformat.readAndFormatValue valueRaw
 
-    | [| "format-legacy" |] ->  
+    // | [| "format-legacy" |] ->  
 
-        GCSettings.LatencyMode <- GCLatencyMode.Batch
-        if File.Exists policyRaw then 
-            File.Delete (policyRaw)
+    //     GCSettings.LatencyMode <- GCLatencyMode.Batch
+    //     if File.Exists policyRaw then 
+    //         File.Delete (policyRaw)
 
-        if File.Exists valueRaw then 
-            File.Delete (valueRaw)
+    //     if File.Exists valueRaw then 
+    //         File.Delete (valueRaw)
 
-        let s = Saver(policyRaw, valueRaw, None)
+    //     let s = Saver(policyRaw, valueRaw, None)
     
-        "/Users/willsam100/Desktop/spider-game-with-failure.csv"
-        |> File.ReadAllLines
-        |> Array.mapi Reformat.sequenceDataLegacy
-        |> Array.groupBy (fun x -> x.GameNumber)
-        |> Array.iter (fun (gn, xs) -> s.SaveLegacyFormat gn xs )
+    //     "/Users/willsam100/Desktop/spider-game-with-failure.csv"
+    //     |> File.ReadAllLines
+    //     |> Array.mapi Reformat.sequenceDataLegacy
+    //     |> Array.groupBy (fun x -> x.GameNumber)
+    //     |> Array.iter (fun (gn, xs) -> s.SaveLegacyFormat gn xs )
 
-        s.Finish()
+    //     s.Finish()
     | [| "play"; gameNumbers|] -> 
         let gameNumbers = 
             if gameNumbers.Contains "," then 
@@ -260,12 +260,12 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = 10
-            MoveCount = 50
+            MctsIterationCount = 100
+            MoveCount = 100
             LoopCount = 0
             RandomMoveThreshold = 1.0
             RandomDelta = 0.
-            MachineLearningApproach = MachineLearningApproach.RadnomMcts
+            MachineLearningApproach = MachineLearningApproach.MctsWithRestApi
         }
 
         let saver = 
@@ -281,16 +281,16 @@ let main argv =
 
         Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
-        let gameNumbers = [50] // List.replicate 1 [ 1 .. 100000 ] |> List.concat
-        let log = true
-        let parallelCount = 1
+        let gameNumbers = [96; 66] //List.replicate 20 [ 66; 70; 87; 88; 94; 96; ] |> List.concat
+        let parallelCount = 14
+        let log = if parallelCount > 1 then false else true
         let config = {
-            MctsIterationCount = 100
+            MctsIterationCount = 50
             LoopCount = 0
-            MoveCount = 50
-            RandomMoveThreshold = 0.9
+            MoveCount = 100
+            RandomMoveThreshold = 0.8
             RandomDelta = 0.001
-            MachineLearningApproach = MachineLearningApproach.RadnomMcts
+            MachineLearningApproach = MctsWithRestApi
         }
 
         let saver = 
@@ -300,7 +300,10 @@ let main argv =
                 member this.Finish() = s.Finish()
                 member this.Format() = s.Format() }
         
+        let s = Stopwatch()
+        s.Start()
         run log saver parallelCount config gameNumbers
+        printfn "Time Taken: %A" s.Elapsed
 
         // if not log then 
         //     printfn "Training..."
@@ -326,71 +329,35 @@ let main argv =
         startInfo.WindowStyle <- ProcessWindowStyle.Hidden
         Process.Start(startInfo) |> ignore
 
-    | [| "balance"; file |] ->  
+    | [| "balance"; gameNumbers |] ->  
         // Reformat.reBalance file
-        Reformat.augment policyRaw
+        gameNumbers.Split "," 
+        |> Array.iter (fun gameNumber -> 
+            Reformat.augment (int gameNumber) prefix (gameNumber |> int |> policyRaw)
+        )
 
-    // | [| "play-as-human"; gameNumber |]
+    | [| "play-as-human"; gameNumber |] -> 
 
-    //     let myAgent rand = 
-    //         MailboxProcessor.Start<AppMove>(fun inbox -> 
-
-    //             let rec loop gameResult = 
-    //                 async { 
-    //                     let! msg = inbox.Receive()
-    //                     match msg with
-    //                     | GetGame rc -> 
-    //                         gameResult |> rc.Reply
-    //                         return! loop gameResult
-    //                     | GetMoves rc -> 
-    //                         match gameResult with 
-    //                         | Lost g -> rc.Reply []
-    //                         | Won -> rc.Reply []
-    //                         | Continue (g, moves) -> moves |> List.indexed |> rc.Reply 
-    //                         return! loop gameResult
-    //                     | PlayMove(moveIndex, rc) -> 
-    //                         match gameResult with 
-    //                         | Continue (game,moves) -> 
-    //                             let move = moves |> List.indexed |> List.tryFind (fun (x,y) -> x = moveIndex)
-    //                             match move with 
-    //                             | None -> 
-    //                                 rc.Reply gameResult
-    //                                 return! loop gameResult
-    //                             | Some (_, move) -> 
-    //                                 let gameResult = GameMover.playMove move game
-    //                                 rc.Reply gameResult
-    //                                 return! loop gameResult
-    //                         | _ -> 
-    //                             rc.Reply gameResult
-    //                             return! loop gameResult
-    //                 }
-
-    //             loop (GameMover.startGame (Card.deck One) rand))
+        let rand = new Random(int gameNumber)
+        let gameStateAgent = App.myAgent rand
         
-    //     let start (gameAgent: MailboxProcessor<AppMove>) = 
-    //         gameAgent.PostAndReply GetGame |> printGameResult |> printfn "%s"
+        App.start gameStateAgent
 
-    //     let playMoveAtIndex (gameAgent: MailboxProcessor<AppMove>) indexMove = 
-    //         printfn "Playing: %d" indexMove
-    //         (fun rc -> PlayMove(indexMove, rc))
-    //         |> gameAgent.PostAndReply
+        let rec gameLoop () = 
+            match gameStateAgent |> getGame with 
+            | Lost _ | Won _ -> 
+                gameStateAgent |> getGame |> printGameResult |> printfn "%s"
+                printfn "Completed"
+            | _ -> 
+                printf "Enter move index:"
+                let move = Console.ReadLine() |> int
+                App.playAndPrint gameStateAgent move
+                gameLoop()
 
-    //     let playAndPrint gameAgent indexMove = 
-    //         playMoveAtIndex gameAgent indexMove
-    //         |> (fun x -> printfn "Scored: %f" <| GameOperations.getReward x; x)
-    //         |> printGameResult
-    //         |> printfn "%s"
+        gameLoop()
 
-    //     let getGame (gameAgent: MailboxProcessor<AppMove>) = 
-    //         gameAgent.PostAndReply GetGame 
-
-
-    // TODO: implement the game loop here, so that a human can play in the terminal. 
-
-
-    //     0
-        
     | _ -> 
         printfn "Bad option. Read the code for help :)"
+
     0 // return an integer exit code
 

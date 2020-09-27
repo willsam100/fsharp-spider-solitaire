@@ -95,7 +95,13 @@ let singleEncoded (g:string) =
 let gamePlusOne increment (g: string) = 
     g.Split "," 
     |> Array.map Int32.Parse
-    |> Array.map (fun x -> (if x + increment >= 15 || x = 1 then 1 else x + increment) |> string)
+    |> Array.map (fun x -> 
+        let value = x + increment
+        match x, value with 
+        | 1, _ -> "1"
+        | _, 15 -> "2"
+        | _, 1 -> "14"
+        | _, _ -> string value )
     |> String.concat ","
 
 let movePlusOne increment = function
@@ -129,6 +135,20 @@ let format13 (game:string) =
 
     game 
     |> Array.chunkBySize 96
+    |> Array.take 10
+    |> Array.collect (Array.truncate 13)
+    |> String.concat ","
+
+let format26to13 (game:string) = 
+    let game = game.Split ","
+
+    if game.Length <> 286 then 
+        game |> String.concat "," |> printfn "%s"
+        printfn "Length: %d" game.Length
+        failwith "Game is too short"
+
+    game 
+    |> Array.chunkBySize 26
     |> Array.take 10
     |> Array.collect (Array.truncate 13)
     |> String.concat ","
@@ -167,11 +187,10 @@ let formatExpand tabSize (game:string) =
 
 let gameDecoded tabSize (game: string) = 
     game
-    |> formatExpand tabSize
     |> fun x -> x.Split ","
     |> Array.map Int32.Parse 
     |> Array.toList
-    |> decodeKeyedGame cardEncoder
+    |> decodeKeyedGame tabSize cardEncoder
 
 // let format (game:string) = 
 //     let game = game.Split ","
@@ -317,7 +336,7 @@ type BrainsMoverClient(port) =
                 // if gamesPolicyNet.Count > 1000 then 
                 //     gamesPolicyNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format13
+                let encoded = MonteCarloTreeSearch.encodeGame 13 game
                 let r = continuation encoded
                 gamesPolicyNet.Add (game, r)
                 r
@@ -326,7 +345,7 @@ type BrainsMoverClient(port) =
             | e -> 
                 printfn "Exception occured:"
                 printfn "%A" game
-                printfn "%A" <| MonteCarloTreeSearch.encodeGame game
+                printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
                 printfn "%s" <| e.ToString()
                 raise e
 
@@ -344,7 +363,7 @@ type BrainsMoverClient(port) =
                 // if gamesValueNet.Count > 10000 then 
                 //     gamesValueNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format26Stock
+                let encoded = MonteCarloTreeSearch.encodeGame 26 game
                 let v = continuation encoded
                 gamesValueNet.Add (game, v)
                 v
@@ -353,7 +372,7 @@ type BrainsMoverClient(port) =
             | e -> 
                 printfn "Exception occured:"
                 printfn "%A" game
-                printfn "%A" <| MonteCarloTreeSearch.encodeGame game
+                printfn "%A" <| MonteCarloTreeSearch.encodeGame 26 game
                 printfn "%s" <| e.ToString()
                 raise e
 
@@ -372,7 +391,7 @@ type BrainsMoverClient(port) =
                 // if gamesMovesNet.Count > 10000 then 
                 //     gamesMovesNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame game |> format96
+                let encoded = MonteCarloTreeSearch.encodeGame 96 game
                 let v = continuation encoded
                 gamesMovesNet.Add (game, v)
                 v
@@ -381,7 +400,7 @@ type BrainsMoverClient(port) =
             | e -> 
                 printfn "Exception occured:"
                 printfn "%A" game
-                printfn "%A" <| MonteCarloTreeSearch.encodeGame game
+                printfn "%A" <| MonteCarloTreeSearch.encodeGame 96 game
                 printfn "%s" <| e.ToString()
                 raise e                
 
@@ -396,14 +415,14 @@ type BrainsMoverClient(port) =
             // which should be completed within 100 moves. 
             // if gamesMovesNet.Count > 10000 then 
             //     gamesMovesNet.Clear()
-            let encoded =  game |> MonteCarloTreeSearch.encodeGame  |> format13
+            let encoded =  game |> MonteCarloTreeSearch.encodeGame 13
             continuation encoded
 
         with 
         | e -> 
             printfn "Exception occured:"
             printfn "%A" game
-            printfn "%A" <| MonteCarloTreeSearch.encodeGame game
+            printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
             printfn "%s" <| e.ToString()
             raise e                
 

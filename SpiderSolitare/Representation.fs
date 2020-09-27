@@ -239,24 +239,27 @@ let encodeGame (cardEncoder: CardEncoder) (game: Game) =
 
     ((game |> Game.getAllTabs |> List.toArray |> Array.collect encodeTableau) |> List.concat) @ stockEncoded 
 
-let encodeKeyGame (cardEncoder: CardEncoderKeyed) (game: Game) =
+let encodeKeyGame tabsize (cardEncoder: CardEncoderKeyed) (game: Game) =
     let encodeTableau tab = 
-        let tab = (tab.Visible |> List.map (cardEncoder.Encode)) //@ (tab.Hidden |> List.map (cardEncoder.Encode))
-        let totalTableauSize = List.replicate (96 - tab.Length) cardEncoder.EmptyCard
-        tab @ totalTableauSize // pad to be array of max possible length for a tableau
+        let tab = (tab.Visible |> List.map (cardEncoder.Encode)) |> List.truncate tabsize //@ (tab.Hidden |> List.map (cardEncoder.Encode))
+        let totalTableauSize = List.replicate (tabsize - tab.Length) cardEncoder.EmptyCard
+        tab @ totalTableauSize |> List.truncate tabsize // pad to be array of max possible length for a tableau
 
     let stock = 
-        let stock = game.Stock |> List.map (cardEncoder.Encode >> int32)
-        let emptyStock = List.replicate (50 - game.Stock.Length) cardEncoder.EmptyCard
-        stock @ emptyStock // Put the empty stock first, so that the data does not change order as it is used. 
+        let stock = game.Stock |> List.map (cardEncoder.Encode >> int32) |> List.truncate tabsize
+        let maxStockSize = Math.Min(50, tabsize)
+        let emptyStock = 
+            if maxStockSize - game.Stock.Length <= 0 then []
+            else List.replicate (maxStockSize - game.Stock.Length) cardEncoder.EmptyCard
+        stock @ emptyStock |> List.truncate tabsize
 
     (game |> Game.getAllTabs |> List.collect encodeTableau) @ stock
 
-let decodeKeyedGame (cardEncoder:CardEncoderKeyed) (game: int32 list) = 
+let decodeKeyedGame size (cardEncoder:CardEncoderKeyed) (game: int32 list) = 
 
     let allCards = 
         game 
-        |> List.chunkBySize (96)
+        |> List.chunkBySize size
         |> List.map (fun xs -> xs |> List.choose cardEncoder.DecodeCard)
         |> List.mapi (fun i xs -> 
             let column = 
@@ -266,7 +269,10 @@ let decodeKeyedGame (cardEncoder:CardEncoderKeyed) (game: int32 list) =
                     Coord.parseColumn (i + 1) |> Some
             column, xs)
 
-    let stock = allCards |> List.filter (fun (x,y) -> x = None) |> List.collect snd
+    if List.length allCards <> 10 && List.length allCards <> 11 then 
+        failwithf "Column count was off: %d\n %A" allCards.Length game
+
+    let stock = allCards |> List.skip 10 |> List.collect snd // |> List.filter (fun (x,y) -> x = None) |> List.collect snd
     let tabs = 
         allCards 
         |> List.choose (fun (x,y) -> x |> Option.map (fun z -> z,y))

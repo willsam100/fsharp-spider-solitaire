@@ -18,29 +18,29 @@ type MgsP =
     | Input of (int * Reformat.LegacyFile [])
     | FinishP of AsyncReplyChannel<unit>
 
-type Saver(policyFile:string, valueFile:string, qlearnFile:string option) = 
+type Saver(policyFile:int -> string, valueFile:string, qlearnFile:string option) = 
 
     let writeFilePolicyFileBuilder (writer:StreamWriter) gameNumber isWin history = 
         history 
         |> List.iter (fun (moveOrder:int, game:string, move:int) -> 
             sprintf "%d,%s,%d,%d,%d" moveOrder game move gameNumber history.Length |> writer.WriteLine ) 
 
-    let writeEpisodeQLearning (writer:StreamWriter) _ history = 
-        history 
-        |> List.mapi (fun i (x,y,z) -> 
-            let isLast = history |> List.tryLast |> Option.get = (x,y,z)
-            i, isLast, x,y,z )
+    // let writeEpisodeQLearning (writer:StreamWriter) _ history = 
+    //     history 
+    //     |> List.mapi (fun i (x,y,z) -> 
+    //         let isLast = history |> List.tryLast |> Option.get = (x,y,z)
+    //         i, isLast, x,y,z )
 
-        |> List.collect (fun (i, isLast, game, move, nextGame) ->  Reformat.permuteColumns (game, move, nextGame) |> List.map (fun (x,y,z) -> i, isLast, x,y,z) )
-        |> List.iter (fun (i, isLast, game:string, move:int, nextGame:string) -> 
-            let isDone = if isLast then 1. else 0.
-            let realReward = gameDecoded 26 nextGame |> reward
-            let reward = 
-                if isLast then 
-                    if realReward = winningNodeReward then winningNodeReward else 0.                    
-                else realReward
+    //     |> List.collect (fun (i, isLast, game, move, nextGame) ->  Reformat.permuteColumns (game, move, nextGame) |> List.map (fun (x,y,z) -> i, isLast, x,y,z) )
+    //     |> List.iter (fun (i, isLast, game:string, move:int, nextGame:string) -> 
+    //         let isDone = if isLast then 1. else 0.
+    //         let realReward = gameDecoded 26 nextGame |> reward
+    //         let reward = 
+    //             if isLast then 
+    //                 if realReward = winningNodeReward then winningNodeReward else 0.                    
+    //             else realReward
 
-            sprintf "%d,%f,%.1f,%s,%s" move (reward) isDone ( game) ( nextGame)|> writer.WriteLine ) 
+    //         sprintf "%d,%f,%.1f,%s,%s" move (reward) isDone ( game) ( nextGame)|> writer.WriteLine ) 
 
     let writeFileValueFileBuilder (writer:StreamWriter) isWin gameNumber history = 
 
@@ -59,7 +59,7 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
                 // | WriteValue (isWin, gameNumber, history) -> writeFileValueFileBuilder valueBuilder isWin gameNumber history
                 | WritePolicyReply (isWin, gameNumber, history, rc) ->  
                 
-                    let policyBuilder = new StreamWriter(new FileStream(policyFile, FileMode.Append))
+                    let policyBuilder = new StreamWriter(new FileStream(policyFile gameNumber, FileMode.Append))
                     writeFilePolicyFileBuilder policyBuilder gameNumber isWin history; 
                     policyBuilder.Flush()
                     policyBuilder.Close()
@@ -73,12 +73,12 @@ type Saver(policyFile:string, valueFile:string, qlearnFile:string option) =
                     rc.Reply()
 
                 | WriteQLearningReply (isWin, history, rc) -> 
-                    qlearnFile |> Option.iter (fun qlearnFile ->
-                        let qLearningBuilder = new StreamWriter(new FileStream(qlearnFile, FileMode.Append))
-                        writeEpisodeQLearning qLearningBuilder isWin history; 
-                        qLearningBuilder.Flush()
-                        qLearningBuilder.Close() 
-                    )
+                    // qlearnFile |> Option.iter (fun qlearnFile ->
+                    //     let qLearningBuilder = new StreamWriter(new FileStream(qlearnFile, FileMode.Append))
+                    //     writeEpisodeQLearning qLearningBuilder isWin history; 
+                    //     qLearningBuilder.Flush()
+                    //     qLearningBuilder.Close() 
+                    // )
                     rc.Reply()
 
                 | Finish rc ->  

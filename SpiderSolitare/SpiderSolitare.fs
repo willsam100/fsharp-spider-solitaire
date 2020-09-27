@@ -592,10 +592,10 @@ module GameResult =
         | None -> Lost game
         | Some game -> f game     
 
-    // let fold lost won f = function 
-    // | Lost _ -> lost 
-    // | Won -> won
-    // | Continue (g,m) -> f g m
+    let fold fLost fWon f = function 
+    | Lost g -> fLost g
+    | Won g -> fWon g
+    | Continue (g,m) -> f g m
 
     // let existsTrue = fold true true
     // let existsFalse = fold false false
@@ -605,6 +605,11 @@ module GameResult =
     | Lost g -> Lost (f g)
     | Won g -> Won (f g)
     | Continue (g, m) ->  Continue (f g, m) 
+
+    let bind f = function 
+    | Lost g -> Lost g
+    | Won g -> Won g
+    | Continue (g, m) -> f g m
 
     // let iter g f = fold () () f g
 

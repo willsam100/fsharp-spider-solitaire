@@ -322,12 +322,12 @@ module App =
     let printMoves moves = 
         moves |> List.mapi (fun i m -> sprintf "i:%d %s" i (printMove m))
 
-    let printGameResult x = printfn "PRINTING GAME"; x |> function 
+    let printGameResult x = printfn "\nPRINTING GAME"; x |> function 
         | Lost game -> sprintf "LOST GAME\n" + (toString game)
         | Won _ -> "GAME HAS BEEN WON"
         | Continue (game, moves) -> 
             let add s y = sprintf "%s\n%s" s y  
-            toString game + "\n" + (moves |> printMoves |> List.reduce (add))
+            toString game + "\nMOVES:\n" + (moves |> printMoves |> List.reduce (add))
 
 
     let myAgent rand = 
@@ -347,20 +347,23 @@ module App =
                         | Continue (g, moves) -> moves |> List.indexed |> rc.Reply 
                         return! loop gameResult
                     | PlayMove(moveIndex, rc) -> 
-                        match gameResult with 
-                        | Continue (game,moves) -> 
-                            let move = moves |> List.indexed |> List.tryFind (fun (x,y) -> x = moveIndex)
-                            match move with 
-                            | None -> 
-                                rc.Reply gameResult
-                                return! loop gameResult
-                            | Some (_, move) -> 
-                                let gameResult = GameMover.playMove move game
-                                rc.Reply gameResult
-                                return! loop gameResult
-                        | _ -> 
-                            rc.Reply gameResult
-                            return! loop gameResult
+                        let gameResult = 
+                            gameResult 
+                            |> GameResult.bind (fun game moves -> 
+                                moves 
+                                |> List.indexed |> List.tryFind (fun (x,_) -> x = moveIndex)
+                                |> Option.map snd
+                                |> Option.map (fun move -> GameMover.playMove move game)
+                                |> Option.map (fun gameResult -> 
+                                    gameResult 
+                                    |> GameResult.fold 
+                                        (fun g -> Lost g) 
+                                        (fun g -> Won g) 
+                                        ( fun g _ -> Continue (g, GameMover.validMoves g)) )
+                                |> Option.defaultValue (Continue (game, moves)) )
+
+                        rc.Reply gameResult
+                        return! loop gameResult
                 }
 
             loop (GameMover.startGame (CardModule.deck OneSuit) rand))
@@ -381,8 +384,4 @@ module App =
 
     let getGame (gameAgent: MailboxProcessor<AppMove>) = 
         gameAgent.PostAndReply GetGame 
-        //|> function 
-        //| Lost g -> Some g
-        //| Won -> None
-        //| Continue (game, _) -> Some game
 
