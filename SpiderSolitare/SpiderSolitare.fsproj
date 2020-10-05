@@ -5,6 +5,7 @@
   <ItemGroup>
     
     <Compile Include="SpiderSolitare.fs" />
+    <Compile Include="ParseGameString.fs" />
     <Compile Include="Operations.fs" />
     <Compile Include="Representation.fs" />
     <Compile Include="MonteCarloTreeSearch.fs" />
