@@ -329,9 +329,6 @@ let iteration (trialCount: int) depth expandNode rollout (pastGames: IDictionary
         
         match nextMove parentVisitCount metrics with 
         | [] ->
-
-
-            
             match node.TerminalValue with 
             | Some _ ->
                 let (_,n) = getMetrics gameToMetrics node
@@ -361,7 +358,7 @@ let iteration (trialCount: int) depth expandNode rollout (pastGames: IDictionary
         | (nextNode: MutableNode<'a,'b>,n)::_ ->            
             if n = 0. then
                 nextNode.Reward <- rollout (nextNode.Game, nextNode.GameHashCode, 0, 50)
-                
+
                 let numberOfParentUpdates = 
                     if nextNode.Reward = winningNodeReward then 1000 else
                     1
@@ -494,7 +491,7 @@ type SearcherWithNeuralNetwork(brainsMover: IBransMover, log) =
                     if cardCount = 0 then
                         winningNode <- Some gameHashCode
                         winningNodeReward
-                    else 0.
+                    else winningNodeReward
                         
                 | false ->
 
@@ -502,9 +499,8 @@ type SearcherWithNeuralNetwork(brainsMover: IBransMover, log) =
                     let b = brainsMover.GetValue game
                     let score = reward game
                     let reward =
-                            
-                            Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
-                                + (2.0 * Math.Pow(decay, depth) * score)
+                        Math.Pow(decay, depth) * b // recent rewards are better for the optimal policy
+                            + (2.0 * Math.Pow(decay, depth) * score)
                     // printfn "Rollout - V:%f S:%f R:%f" b score reward   
                     reward // * float (Math.Max(siblingCount, 1))
 

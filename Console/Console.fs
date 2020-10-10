@@ -7,6 +7,7 @@ open System.Runtime
 open Persisance
 open Brain
 open ImageMagick
+open SpiderSolitare.GameString
 open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Game
 open System.Diagnostics
@@ -157,7 +158,12 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 
         gameNumbers 
         |> List.map (fun gameNumber -> 
-            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher updateHistory config.MctsIterationCount config.MoveCount gameNumber
+
+            let r = Random(gameNumber)
+            let deck = Game.CardModule.deck Game.OneSuit //|> List.take (13 * 2)
+            let game = Game.GameMover.createValidGame deck r |> Game.GameMover.unHideGame
+
+            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher updateHistory config.MctsIterationCount config.MoveCount game gameNumber
             searcher.BrainServer |> Option.iter (fun brainsMover -> brainsMover.Flush())
 
             printfn "%A" gameResult.Game
@@ -219,7 +225,8 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 [<EntryPoint>]
 let main argv =
     let prefix = "/Users/willsam100/Desktop/spider-data/"
-    let policyRaw = sprintf "%s/spider-policy-raw-%d.csv" prefix
+    let prefixName = "spider-policy-raw"
+    let policyRaw: int -> string = sprintf "%s/%s-%d.csv" prefix prefixName
     let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
     let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
     let qLearningBk = "/Users/willsam100/Desktop/message.csv"
@@ -276,13 +283,132 @@ let main argv =
 
         run true saver parallelCount config gameNumbers
 
+    | [| "flip"; log |] -> 
+        // Tries to solve the moves to get to the hidden cards. 
+        // This is used to translate games from another 'real' spider game into this game.
+
+        let log = 
+            match log with 
+            | "true" -> true
+            | "log" -> true
+            | _ -> false
+
+        let input = 
+            """ 
+            
+                -  -  -   -  -   s7
+                -  -  s10 -  -   s3  
+                -  s7 sa  -  s7  sa -  sk -  sa         
+                sk s3 s3  sa s5  sq s3 s3 -  s10            
+                s6 sj s4  s6 s10 s8 sa s7 sk sq
+                sq s9 s7  s4                    """
+              // 1  2  3  4  5  6  7  8  9  10
+              // 2  3  3  2  2  4  1  2  0  2
+        let deck = 
+            """
+                sk s10 s9 sj  s3 s2  s5 s13 s5 s2
+                sk sa  s5 s10 s2 sk  s4 s8  s9 s9
+                sj sq  s8 sj  s4 s8  sq s6  s7 s8
+                s3 s8  s4 s6  s5 s6  s9 sj  sq s4
+                sa sj  s3 s2  sa s10 s7 s5  s9 sj
+            """ 
+
+        let rows = 
+            GameString.toRows input
+            |> List.mapi (fun i x -> Coord.parseColumn (i + 1) |> string, x |> List.tail |> List.length)
+
+        let game = GameString.parseGame OneSuit (input, deck)
+   
+        printfn "%A" game
+        printfn "%A" game.Stock
+
+        let config = {
+            MctsIterationCount = 20
+            MoveCount = 1000
+            LoopCount = 0
+            RandomMoveThreshold = 0.9
+            RandomDelta = 0.
+            MachineLearningApproach = MachineLearningApproach.MctsWithRestApi
+        }
+
+        let searcher = SearcherRandomer(true)  :> ISearcher
+
+        let appendMove x acc = 
+            match acc with 
+            | [] -> [x] :: acc 
+            | head::xs -> (x :: head) :: xs
+
+        let printMoves (rows: (string * int) list) history = 
+
+            let moves = 
+                history 
+                |> List.rev
+                |> List.map (fun (_, move, _, _) -> move)
+
+            let flipCount = 
+                moves
+                |> List.fold (fun (i, flipCount) (x: string) -> 
+                    if x.ToLower().Contains "flip" then 
+                        let flipCount =
+                            flipCount
+                            |> Map.tryFind x
+                            |> Option.map (fun xs -> 
+                                match xs with 
+                                | [] -> flipCount |> Map.add x [(i, 1)]
+                                | (_, count)::_ as xs -> flipCount |> Map.add x ((i, count + 1) :: xs) )
+                            |> Option.defaultValue (flipCount |> Map.add x [(i, 1)])
+                        i + 1, flipCount
+                    else 
+                        i+1, flipCount
+                ) (0, Map.empty)
+                |> snd
+
+            let shouldPrint = 
+                flipCount
+                |> Map.exists (fun k v -> 
+                    match rows |> List.tryFind (fun (c, _) -> k.Contains c) with 
+                    | None -> false
+                    | Some (_, count) -> v |> List.map snd |> List.max > count
+                )
+
+            moves
+            |> List.iteri (fun i x -> 
+                let move = 
+                    flipCount 
+                    |> Map.tryFind x 
+                    |> Option.bind (fun xs -> 
+                        xs 
+                        |> List.tryFind (fun (index, count) -> index = i)
+                        |> Option.bind (fun (_, count) ->  sprintf "%s %d" x count |> Some ))
+                    |> Option.defaultValue x
+                printfn "%s" move )
+
+            if not shouldPrint then 
+                printfn "No Flip cards found"
+
+
+            flipCount
+            |> Map.iter (fun k v -> 
+                printfn "%s:%d" k (v |> List.map snd |> List.max)
+            )
+
+        let updateHistory pastGame currentGame move history = 
+            let next = 1, string move, 1, ""
+            next :: history
+            
+        MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher updateHistory config.MctsIterationCount config.MoveCount game -1
+        |> fun x -> x.History
+        |> printMoves rows
+
+        ()
+
 
     | [| "generate" |] -> 
 
         Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
-        let gameNumbers = [96; 66] //List.replicate 20 [ 66; 70; 87; 88; 94; 96; ] |> List.concat
-        let parallelCount = 14
+        let gameNumbers = List.replicate 20 [ 50;51;52;55;57;59;60;61;62;63;64;65;66;67;68;69;70;76;77;79;80;81;82;83;84;85;86;87;88;89;90;91;92;96;97;98;99;100;101;103;104;105;107;108;110;111;113;114;115;116;118;119;120;121;122;123;124;126;127;128;129;130;131;132;134;135;136;137;138;139;141;142;143;144;146;148;149;150;152;153;154;156;157;158;159;160;161;162;163;164;165;166;167;169;170;172;174;175;176;177;178;180;181;182;183;184;185;186;188;189;190;191;192;193;194;195;196;197;200 ] |> List.concat
+        let parallelCount = 8
         let log = if parallelCount > 1 then false else true
         let config = {
             MctsIterationCount = 50
@@ -329,12 +455,19 @@ let main argv =
         startInfo.WindowStyle <- ProcessWindowStyle.Hidden
         Process.Start(startInfo) |> ignore
 
-    | [| "balance"; gameNumbers |] ->  
-        // Reformat.reBalance file
-        gameNumbers.Split "," 
+    | [| "balance"; |] ->  
+
+        Directory.GetFiles prefix 
+        |> Array.filter (fun x -> x.Contains prefixName)
+        |> Array.map (fun x -> 
+            x.Replace(prefix, "").Replace(prefixName, "").Replace("-", "").Replace(".csv", ""))
+        |> Array.map int
+        |> Array.sort
         |> Array.iter (fun gameNumber -> 
-            Reformat.augment (int gameNumber) prefix (gameNumber |> int |> policyRaw)
+            Reformat.augment gameNumber prefix (gameNumber |> policyRaw)
         )
+
+        // zip -r data.zip data/
 
     | [| "play-as-human"; gameNumber |] -> 
 

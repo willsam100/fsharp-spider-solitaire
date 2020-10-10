@@ -502,6 +502,8 @@ module Game =
     let updateTableaus tabs game = 
         tabs |> List.fold (fun game (c, t) -> updateColumn c t game ) game
 
+    let setStock stock game = { game with Stock = stock}
+
 
     let tabMap f game = 
         let tabs = game |> getAllTabsWithColumn |> List.map (fun (c,tab) -> c, f tab)
@@ -553,7 +555,7 @@ module Game =
             // | _ -> false   
 
             match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
-            | _, One, _, _ -> true
+            | _, Eight, _, _ -> true
             | Two, Two, Two, Two -> true
             | Eight, _, _, _ -> true
             | _, _, Eight, _ -> true
@@ -708,9 +710,6 @@ module GameMover =
                 | true -> Won game
                 | false -> Continue (game, []) )
             |> Option.defaultValue (Lost game)
-
-
-
 
     let unHideGame game = 
         Game.tabMap (Tableau.unHideCards) game

@@ -64,11 +64,9 @@ type GameResult = {
     Progress: float list
 }
 
-let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterationCount totalCount gameNumber: GameResult = 
+let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterationCount totalCount game gameNumber: GameResult = 
 
-    let r = Random(gameNumber)
-    let deck = Game.CardModule.deck Game.OneSuit //|> List.take (13 * 2)
-    let game = Game.GameMover.createValidGame deck r |> Game.GameMover.unHideGame
+
     
     // let pastGames = Dictionary<_, _>()
     // let searcher = Searcher(log, brainsMover, pastGames, gameToMetrics)
