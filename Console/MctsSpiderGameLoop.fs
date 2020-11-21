@@ -6,54 +6,46 @@ open System.Diagnostics
 open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Game
 open SpiderSolitare.Visulization
-
-let playMoves initGame moves =
-    moves
-    |> Array.fold (fun game move ->
-        match GameMover.playMove move game with
-        | Continue (g,_) -> g
-        | Lost _ ->
-            printfn "%A" game
-            printfn "%A" move
-            failwithf "bad move"
-        | Won g -> g ) initGame
-
-let playRandomMove move (node: MutableNode<Game, MoveType>) = 
-
-    let gameResult = Game.GameMover.playMove move node.Game
-    let prob = 0.5 // default init value since the network did not predict this move
-    match gameResult with 
-    | Game.Continue (g,_s) -> 
-        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, None, 0)
-    | Game.Lost g -> 
-        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some false, 0)
-    | Game.Won g -> 
-        MutableNode(g, prob, reward g, Some move, node.Depth + 1, Some node, Some true, 0)
+open SpiderSolitare.Brain
 
 let r = Random()
-let playMove log randomness getMetrics (root: MutableNode<'a, 'b>) t n  = 
+
+let pickBest log getMetrics (root: MutableNode<Game, 'b>) = 
+    if root.Children.IsEmpty then 
+        // This means that the NN suggested a move that had already been played ie a loop. 
+        // It should be considered a loss since looping should be penalized. 
+        None
+    else 
+        if log then  printfn "Playing best move"
+        root.Children |> List.maxBy (getMetrics >> fst) |> Some
+
+let rec pickRandom log count (root: MutableNode<Game, 'b>) = 
 
     if root.Children.IsEmpty then 
         // This means that the NN suggested a move that had already been played ie a loop. 
         // It should be considered a loss since looping should be penalized. 
-        Error None
-    else 
-        let v = r.NextDouble()
-        if v < randomness then
-            if log then  printfn "Playing best move"
-            let nextNode = root.Children |> List.maxBy (getMetrics >> snd) 
-            // match nextNode.Children with 
-            // | [] when nextNode.TerminalValue = None -> nextNode |> Some |> Error
-            //  | _ -> 
-            Ok nextNode
-        else                 
+        None
+    else                
+        if count < 0 then 
             let move = r.Next(0, root.Children.Length)
-            if log then printfn "Playing random move. %d/%d" move (root.Children.Length)
+            if log then printfn "Playing UNEXPLORED random move. %d/%d" (move + 1) (root.Children.Length)
+            root.Children.[move] |> Some
+        else 
+            let move = r.Next(0, root.Children.Length)
             let nextNode = root.Children.[move]
-            // match nextNode.Children with 
-            // | [] when nextNode.TerminalValue = None -> nextNode |> Some |> Error
-            // | _ -> 
-            Ok nextNode
+            match nextNode.Children, nextNode.TerminalValue with 
+            | [],  None -> pickRandom log (count - 1) root
+            | _ -> 
+                if log then printfn "Playing random move. %d/%d" (move + 1) (root.Children.Length)
+                Some nextNode
+
+let updateHistory parentGame game move history = 
+    let gameAndBestMove = 
+        (List.length history + 1), 
+        (parentGame  |> Representation.encodeKeyGame 26 cardEncoder |> Seq.map string |> String.concat ","), 
+        (moveEncoder.Encode move |> encodeMove),
+        (game |> Representation.encodeKeyGame 26 cardEncoder |> Seq.map string |> String.concat ",")
+    gameAndBestMove :: history
 
 type GameResult = {
     IsWin: bool
@@ -64,39 +56,51 @@ type GameResult = {
     Progress: float list
 }
 
-let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterationCount totalCount game gameNumber: GameResult = 
+let playGame log randomMoveThreshold (searcher: ISearcher) iterationCount totalCount game gameNumber: GameResult = 
 
-
-    
-    // let pastGames = Dictionary<_, _>()
-    // let searcher = Searcher(log, brainsMover, pastGames, gameToMetrics)
     let root = MutableNode(game, 1.0, 0., None, 1, None, None, 0)
-
+    let watch = Stopwatch()
+    watch.Start()
     searcher.Init root
+    if log then 
+        printfn "Starting game:"
+        printfn "%A" game
+        printfn ""
+    
 
-    let rec loop foundWinningPath history count root game =
-        let (t,n) = searcher.GetMetrics root
-        
-        let foundWinningPath =
-            if foundWinningPath then true
-            else
-                // searcher.SearchWithNN(iterationCount, root)
-                searcher.Search iterationCount root
-                // false
+    let rec loop foundWinningPath history count (root: MutableNode<Game, MoveType>) game =
+        let fixedLookAhead = Math.Min(300, totalCount - (totalCount - count)) |> float
 
-        let movesMade = float (totalCount - count)
-        let r = randomMoveThreshold
-        match playMove log r searcher.GetMetrics root t n with 
-        | Error _ ->   
+        let shouldIgnoreRandom =
+            root.Game.Spades = Zero || root.Game.Spades = One || root.Game.Spades = Two || root.Game.Spades = Three || root.Game.Spades = Four
+
+        let playedRandom, playMove, foundWinningPath = 
+            match foundWinningPath, shouldIgnoreRandom, r.NextDouble() < randomMoveThreshold with
+            | true, _, true -> false, pickBest log searcher.GetMetrics, true
+            | _, _, true
+            | _, true, false -> 
+                false, pickBest log searcher.GetMetrics, searcher.Search iterationCount fixedLookAhead root
+            | _, _, _ -> 
+                // let randomLookAhead = r.Next(1, 5) |> float
+                true, pickRandom log 5, false
+
+        if playedRandom then 
+            searcher.ResetMaxReward()
+            watch.Restart()
+
+        match playMove root with 
+        | None ->   
             // we don't actually know why we are here. Some how we coudln't see that this was a dead state
             // Most likely this is the cause of a loop - we have already visited this state. 
-            printfn "Finishing without a good reason."
+            printfn "Finishing without a good reason. %A" playedRandom
             // false, gameNumber, game, movesMade, history, searcher.GetProgress() // TODO: keep reviing this
+            searcher.PrintTree 4 root
+
             {
                 IsWin = false
                 GameNumber = gameNumber
                 Game = game
-                MovesMade = movesMade
+                MovesMade = float (totalCount - count)
                 History = history
                 Progress = searcher.GetProgress()
             }
@@ -106,7 +110,7 @@ let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterati
         //     let history = updateHistory game nMove.Game nMove.Move.Value history
         //     false, gameNumber, game, movesMade, history, searcher.GetProgress() // TODO: keep reviing this
 
-        | Ok nMove -> 
+        | Some nMove -> 
             nMove.Parent <- None
             match nMove.TerminalValue with 
             | None -> 
@@ -116,18 +120,24 @@ let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterati
                         IsWin = false
                         GameNumber = gameNumber
                         Game = nMove.Game
-                        MovesMade = movesMade
+                        MovesMade = float (totalCount - count)
                         History = history
                         Progress = searcher.GetProgress()
                     }
                 else    
                     if log then 
-                        if false then 
-                            searcher.BrainServer |> Option.iter (fun brainsMover -> 
-                                visulizeColumnPrediction brainsMover nMove )
+                        // if false then 
+                        //     searcher.BrainServer |> Option.iter (fun brainsMover -> 
+                        //         visulizeColumnPrediction brainsMover nMove )
 
                         printfn "%A" nMove.Game                        
                         printfn "%A" nMove.Move.Value
+
+                        let foundWinningPath = 
+                            if watch.Elapsed < searcher.MaxTime then foundWinningPath
+                            else 
+                                printfn "Out of time searching"
+                                true // Play the best we can after searching
 
                         loop foundWinningPath (updateHistory game nMove.Game nMove.Move.Value history) (count - 1) nMove nMove.Game
                     else                         
@@ -141,7 +151,7 @@ let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterati
                         IsWin = true
                         GameNumber = gameNumber
                         Game = nMove.Game
-                        MovesMade = movesMade
+                        MovesMade = float (totalCount - count)
                         History = history
                         Progress = searcher.GetProgress()
                     }
@@ -150,7 +160,7 @@ let playGame log randomMoveThreshold (searcher: ISearcher) updateHistory iterati
                         IsWin = false
                         GameNumber = gameNumber
                         Game = nMove.Game
-                        MovesMade = movesMade
+                        MovesMade = float (totalCount - count)
                         History = history
                         Progress = searcher.GetProgress()
                     }

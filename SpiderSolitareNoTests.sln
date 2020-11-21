@@ -9,6 +9,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Console.Tests", "Console.Te
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Analytics", "Analytics\Analytics.fsproj", "{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ML-NET-Tensorflow", "ML-NET-Tensorflow\ML-NET-Tensorflow.csproj", "{13A7B868-38EC-44B9-99E1-7D3F87BFAC00}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SampleRegression.Model", "SampleRegression.Model\SampleRegression.Model.csproj", "{A00805B1-E5B4-4C79-98E8-1A4F9260444A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -47,5 +51,13 @@ Global
 		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A510E1E9-DFCB-42E3-9DBE-3CC15A53A3CA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{13A7B868-38EC-44B9-99E1-7D3F87BFAC00}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{13A7B868-38EC-44B9-99E1-7D3F87BFAC00}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{13A7B868-38EC-44B9-99E1-7D3F87BFAC00}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{13A7B868-38EC-44B9-99E1-7D3F87BFAC00}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A00805B1-E5B4-4C79-98E8-1A4F9260444A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A00805B1-E5B4-4C79-98E8-1A4F9260444A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A00805B1-E5B4-4C79-98E8-1A4F9260444A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A00805B1-E5B4-4C79-98E8-1A4F9260444A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

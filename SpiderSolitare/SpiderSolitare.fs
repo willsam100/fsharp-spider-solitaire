@@ -555,7 +555,7 @@ module Game =
             // | _ -> false   
 
             match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
-            | _, Eight, _, _ -> true
+            | _, Five, _, _ -> true
             | Two, Two, Two, Two -> true
             | Eight, _, _, _ -> true
             | _, _, Eight, _ -> true

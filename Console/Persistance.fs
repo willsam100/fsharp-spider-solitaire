@@ -18,7 +18,7 @@ type MgsP =
     | Input of (int * Reformat.LegacyFile [])
     | FinishP of AsyncReplyChannel<unit>
 
-type Saver(policyFile:int -> string, valueFile:string, qlearnFile:string option) = 
+type Saver(policyFile:int -> string, valueFile:int->string, qlearnFile:string option) = 
 
     let writeFilePolicyFileBuilder (writer:StreamWriter) gameNumber isWin history = 
         history 
@@ -66,7 +66,7 @@ type Saver(policyFile:int -> string, valueFile:string, qlearnFile:string option)
                     rc.Reply()
 
                 | WriteValueReply (isWin, gameNumber, history, rc) -> 
-                    let valueBuilder = new StreamWriter(new FileStream(valueFile, FileMode.Append))
+                    let valueBuilder = new StreamWriter(new FileStream(valueFile gameNumber, FileMode.Append))
                     writeFileValueFileBuilder valueBuilder isWin gameNumber history; 
                     valueBuilder.Flush()
                     valueBuilder.Close() 
@@ -115,7 +115,7 @@ type Saver(policyFile:int -> string, valueFile:string, qlearnFile:string option)
     member this.SaveGameMoves isWin gameNumber history =  
         if isWin then 
             mb.PostAndReply (fun rc -> WritePolicyReply (isWin, gameNumber, List.rev history, rc))
-        // mb.PostAndReply (fun rc -> WriteValueReply (isWin, gameNumber, history |> List.rev |> List.map (fun (moveOrder, game,_) -> moveOrder, game), rc))       
+        mb.PostAndReply (fun rc -> WriteValueReply (isWin, gameNumber, history |> List.rev |> List.map (fun (moveOrder, game,_) -> moveOrder, game), rc))       
         // mb.PostAndReply (fun rc -> WriteQLearningReply (isWin, history |> List.rev |> List.map (fun (_, currentGame, nextGame,move) -> currentGame, nextGame, move), rc))       
         // else 
             // mb.Post (WritePolicy (isWin, gameNumber, List.rev history))

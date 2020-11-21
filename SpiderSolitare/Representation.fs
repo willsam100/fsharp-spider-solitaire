@@ -242,8 +242,8 @@ let encodeGame (cardEncoder: CardEncoder) (game: Game) =
 let encodeKeyGame tabsize (cardEncoder: CardEncoderKeyed) (game: Game) =
     let encodeTableau tab = 
         let tab = (tab.Visible |> List.map (cardEncoder.Encode)) |> List.truncate tabsize //@ (tab.Hidden |> List.map (cardEncoder.Encode))
-        let totalTableauSize = List.replicate (tabsize - tab.Length) cardEncoder.EmptyCard
-        tab @ totalTableauSize |> List.truncate tabsize // pad to be array of max possible length for a tableau
+        let totalTableauSize = List.replicate tabsize cardEncoder.EmptyCard
+        (tab @ totalTableauSize) |> List.truncate tabsize // pad to be array of max possible length for a tableau
 
     let stock = 
         let stock = game.Stock |> List.map (cardEncoder.Encode >> int32) |> List.truncate tabsize

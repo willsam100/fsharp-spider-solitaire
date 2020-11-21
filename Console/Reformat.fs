@@ -63,9 +63,10 @@ type Policy = {
 
 [<Struct>]
 type Value = {
-    Game: string
-    Reward: int
+    Game: Game
+    Reward: float
     MoveOrder: int
+    MoveCount: int
     GameNumber: int
     RowNumber: int
 }
@@ -94,7 +95,7 @@ let sequenceDataLegacy rowNumber (x: string) =
     let row = x.Split ","
     let game = row |> Array.skip 1 |> Array.take (row.Length - 1171 - 2) |> String.concat ","
     let move = row |> Array.skip (row.Length - 1171 - 2) |> Array.take 1171 |> Array.map Int16.Parse
-    let outcome = 
+    let isDone = 
         match row.[row.Length - 2] with 
         | "true" ->  true
         | "false" ->  false
@@ -105,7 +106,7 @@ let sequenceDataLegacy rowNumber (x: string) =
     {
         Game = game
         Move = move |> encodeMove
-        Reward = outcome
+        Reward = isDone
         MoveOrder = moveOrder
         GameNumber = gameNumber
         RowNumber = rowNumber
@@ -123,7 +124,7 @@ let sequenceDataPolicy rowNumber (x: string) =
         let moveCount = Array.last row |> Int32.Parse
 
         return 
-            // format game, move, outcome, gameNumber, moveOrder
+            // format game, move, isDone, gameNumber, moveOrder
             try 
                 {
                     Game = game 
@@ -179,7 +180,7 @@ let sequenceDataColumn rowNumber (x: string) =
             |> gameDecoded 96
 
         return 
-            // format game, move, outcome, gameNumber, moveOrder
+            // format game, move, isDone, gameNumber, moveOrder
             try 
                 {
                     Game = game
@@ -195,21 +196,21 @@ let sequenceDataValue rowNumber (x: string) =
 
     try 
         let row = x.Split ","
-        let game = row |> Array.skip 1 |> Array.take (row.Length - 2) |> String.concat ","
-        let reward =  row.[row.Length - 2] |> Int32.Parse
         let moveOrder = Array.head row |> Int32.Parse
-
+        let game = row |> Array.skip 1 |> Array.take 286 |> String.concat "," |> gameDecoded 26
+        let reward =  row.[row.Length - 2] |> Int32.Parse
         let gameNumber = Array.last row |> Int32.Parse
 
         if reward <> 1 && reward <> 0 then 
             failwithf "Parsing failed. Reward is not in acceptable range (0 - 1), actual: %d" reward
 
         {
-            Game = format96 game
-            Reward = reward
+            Game = game
+            Reward = float reward
             MoveOrder = moveOrder
             GameNumber = gameNumber
             RowNumber = rowNumber
+            MoveCount = 0
         }
     with 
     | e -> 
@@ -237,6 +238,7 @@ let applyTransform t =
     allTransforms
     |> List.map (fun (left, right) -> t left right )
     |> List.distinct
+    
 
 let transformGame game left right = 
     let tabLeft = Game.getTabForColumn game left
@@ -292,6 +294,11 @@ let permuteColumnsForPolicy (p: Policy) =
         
     applyTransform transform |> List.toArray
 
+let permuteColumnsForValue (p: Value) =
+    let transform left right =        
+        left, right, {p with Game = transformGame p.Game left right }
+    applyTransform transform |> List.toArray
+
 let permuteColumnsGame (policy: ColumnGame) =
     async {
         do! Async.SwitchToThreadPool()        
@@ -319,6 +326,8 @@ let permuteColumnsGame (policy: ColumnGame) =
                 )
             |> Array.distinct
     }
+    
+
     
 // let permuteCardsGame (policy: ColumnGame) =
 //     async {
@@ -423,19 +432,19 @@ let cutoutGame (g: Game) =
         raise e
 
 
-let rec oversample (targetCount: int) (gs: (Game * int) list) =
+let rec oversample (targetCount: int) gameOp (gs: ('a * float) list) =
     let lengthGs = List.length gs
     let delta = targetCount - lengthGs
     if delta <= 0 then 
         List.truncate targetCount gs
     else 
         if delta < lengthGs then 
-            let cutted = gs |> List.truncate delta |> List.map (fun (g, m) -> cutoutGame g, m)
+            let cutted = gs |> List.truncate delta |> List.map (fun (g, m) -> gameOp g, m)
             List.append gs cutted
         else 
             let count = delta / lengthGs
-            let cutted = gs |> List.replicate count |> List.concat |> List.map (fun (g, m) -> cutoutGame g, m)
-            oversample targetCount (List.append gs cutted)
+            let cutted = gs |> List.replicate count |> List.concat |> List.map (fun (g, m) -> gameOp g, m)
+            oversample targetCount gameOp (List.append gs cutted)
 
 let getOversampleCount map = 
     map
@@ -541,7 +550,7 @@ let isValidGamePolicy (x: ColumnGame) =
 //     // File.AppendAllLines ("/Users/willsam100/Desktop/spider-policy-net.csv", output)
 
 let saveValueNet data = 
-    let rows = data |> Array.map (fun (g, outcome) -> sprintf "%s,%d" g outcome )
+    let rows = data |> Array.map (fun (g, isDone) -> sprintf "%s,%d" g isDone )
     File.WriteAllLines ("/Users/willsam100/Desktop/spider-value-net.csv", rows)
 
 let saveBalancedPolicyNet (writer: StreamWriter) data =
@@ -602,7 +611,7 @@ let filterDuplicateGamesStateRewards (data: Value[]) =
     let zeroOutFirstGames xs = 
         if Array.length xs > 5 then 
             xs |> Array.mapi (fun i (x: Value) -> 
-                if i <= 5 then {x with Reward = 0} else x
+                if i <= 5 then {x with Reward = 0.} else x
                 )
         else xs
 
@@ -628,8 +637,8 @@ let filterDuplicateGamesStateRewards (data: Value[]) =
         |> List.map List.toArray
         |> List.toArray
         |> fun games -> 
-            if games |> Array.concat |> Array.exists (fun x -> x.Reward = 1) then 
-                games |> Array.filter (fun xs -> xs |> Array.exists (fun x -> x.Reward = 1 ))    
+            if games |> Array.concat |> Array.exists (fun x -> x.Reward = 1.) then 
+                games |> Array.filter (fun xs -> xs |> Array.exists (fun x -> x.Reward = 1. ))    
             else 
                 games
 
@@ -647,7 +656,7 @@ let filterDuplicateGamesStateRewards (data: Value[]) =
     //     // |> Array.distinctBy snd 
     //     )
     |> Array.map (fun (g,v) -> 
-        if v |> Array.exists (fun x -> x.Reward = 1) then 
+        if v |> Array.exists (fun x -> x.Reward = 1.) then 
             g,1
         else g,0 )
 
@@ -775,6 +784,12 @@ let filterDuplicateeMoves (data: Policy[]) =
                 
             games |> Array.filter (fun x -> x.Move = validMove) |> Some )
     |> Array.concat
+
+let filterDuplicateValues (data: Value[]) =
+
+    data
+    |> Array.groupBy (fun x -> x.Game)
+    |> Array.choose (fun (_, games) -> games |> Array.tryFind (fun x -> x.Reward = 1. ) )
     
 let filterBottomPerformance (data: Policy[]) =
 
@@ -784,6 +799,8 @@ let filterBottomPerformance (data: Policy[]) =
         xs
         |> Array.sortBy (fun x -> x.MoveCount)
         |> Array.truncate (float xs.Length * 0.5 |> int) )
+
+
 
 let outputFormat m (g: string) = 
 
@@ -832,20 +849,20 @@ let outputFormat m (g: string) =
 //         writer.Flush()
 //         writer.Close()
 
-let readAndFormatValue file = 
+// let readAndFormatValue file = 
 
-    File.ReadAllLines file
-    |> Array.take 3000
-    |> Array.mapi sequenceDataValue
-    |> filterDuplicateGamesStateRewards
-    |> Array.map (fun (g,value) -> 
-        sprintf "%s,%s" g (gamePlusOne 0 g), value )
-    // |> (fun x -> Array.shuffle x; x)
-    // |> Array.truncate 2000 // random fast training. 
+//     File.ReadAllLines file
+//     |> Array.take 3000
+//     |> Array.mapi sequenceDataValue
+//     |> filterDuplicateGamesStateRewards
+//     |> Array.map (fun (g,value) -> 
+//         sprintf "%s,%s" g (gamePlusOne 0 g), value )
+//     // |> (fun x -> Array.shuffle x; x)
+//     // |> Array.truncate 2000 // random fast training. 
 
-    // |> Array.map (fun x -> x.Game, x.Reward)
-    // |> Array.distinctBy (fun (g,_) -> g)
-    |> saveValueNet
+//     // |> Array.map (fun x -> x.Game, x.Reward)
+//     // |> Array.distinctBy (fun (g,_) -> g)
+//     |> saveValueNet
 
 let inParallel f data = 
     data
@@ -887,32 +904,226 @@ let augment gameNumber prefix file =
     let writer = new StreamWriter(targetFile, false, Encoding.ASCII, 65536)
     let data = 
         rows 
-        |> Array.map (fun (x: Policy) -> x.Game, x.Move)   
+        |> Array.map (fun (x: Policy) -> x.Game, float x.Move) 
+        |> Array.filter (fun x -> snd x <> 0.)  
         |> Array.distinct
         |> Array.groupBy snd
         |> Array.map (fun (x,y) -> x, y |> Array.distinct)
         
     let count = 
         data 
-        |> Array.filter (fun x -> fst x <> 0)
+        |> Array.filter (fun x -> fst x <> 0.)
         |> Array.map (fun x -> x |> snd |> Array.length)
         |> Array.max
 
     printfn "Oversample size:%d" count
 
-    let toOutputFormat (game, outcome) =
-        let game = game |> encodeKeyGame 13 cardEncoder |> List.truncate (13 * 10) |> Seq.map string |> String.concat ","
-        sprintf "%d,%s" outcome game 
+    let toOutputFormat (game, isDone) =
+
+        let game = 
+            game 
+            |> encodeKeyGame 26 cardEncoder 
+            |> List.truncate (26 * 11)
+            |> List.map string 
+            |> String.concat ","
+        
+        sprintf "%d,%s" (int isDone) game
+
+    // let toOutputFormat (game, isDone) =
+    //     let game = game |> encodeKeyGame 13 cardEncoder |> List.truncate (13 * 10) |> Seq.map string |> String.concat ","
+    //     sprintf "%d,%s" (int isDone) game 
 
     data 
     |> Array.map (snd >> Array.toList)
-    |> inParallel (oversample count >> List.map toOutputFormat)
+    |> inParallel (oversample count cutoutGame >> List.map toOutputFormat)
+    // |> inParallel (List.map toOutputFormat)
 
     |> Array.iter (saveBalancedPolicyNet writer)
     writer.Flush()
     writer.Close()
-    
 
+let groupByGameInstance (values: Value[]) = 
+    values
+    |> Array.toList
+    |> List.sortBy (fun x -> x.RowNumber)
+    |> List.fold (fun acc x -> 
+        match acc with 
+        | [] -> [[x]]
+        | []::xs -> [x] :: xs
+        | totalMoves::xs -> 
+            match totalMoves with 
+            | [] -> [x] :: xs
+            | z::_ -> 
+                if z.MoveOrder > x.MoveOrder then 
+                    [x] :: acc
+                else 
+                    (x :: totalMoves) :: xs
+    ) []
+
+
+let applyToGameInstances f values = 
+    values
+        |> groupByGameInstance
+        |> List.map f
+        |> List.concat
+        |> List.toArray
+
+let setReward last (v:Value) = 
+    {v with Reward = (last * 0.99) + v.Reward }
+
+
+let transformReward (vs:Value list) = 
+    vs 
+    
+    |> List.map (fun x ->
+        let reward = 
+            if x.MoveCount = x.MoveOrder then 
+                if x.Reward = 0. then -1. else 1.
+            else -0.01
+
+        { x with Reward = reward })
+    |> List.sortByDescending (fun x -> x.MoveOrder)
+    |> List.fold (fun acc next -> 
+        match acc with 
+        | [] -> [next]
+        | last::_ -> setReward last.Reward next :: acc ) []
+    |> List.sortBy (fun x -> x.MoveOrder)
+
+let updateMoveCount (values: Value[]) = 
+    values 
+    |> applyToGameInstances 
+        (fun gameInstance -> 
+            gameInstance 
+            |> List.map (fun x -> { x with MoveCount = gameInstance.Length;})
+            |> transformReward
+            |> List.toArray
+            |> Array.map permuteColumnsForValue
+            |> Array.concat
+            |> Array.groupBy (fun (x,y,z) -> x,y)
+            |> Array.toList
+            |> List.map snd
+            |> List.map Array.toList
+            |> List.concat )
+    |> Array.map (fun (_, _, x) -> x)
+
+
+
+// let resetScoreForIrrelevantMoves values = 
+//     values
+//     |> applyToGameInstances 
+//         (fun gameInstance ->  
+
+//             gameInstance 
+//             |> List.map (fun game -> 
+
+//                 if game.Reward = 0. then 
+//                     game
+//                 else
+
+//                     let games = gameInstance |> List.filter (fun  x -> x <> game)
+//                     let variations = permuteColumnsForValue game |> Array.map (fun x -> x.Game)
+
+//                     let irrelevantGames = 
+//                         games 
+//                         |> List.filter (fun x -> 
+//                             variations |> Array.exists (fun game -> x.Game = game) )
+//                         |> function     
+//                             | [] -> game
+//                             | xs -> 
+//                                 printfn "-----"
+//                                 printfn "%A" game.Game
+//                                 printfn "%A" game.Reward
+
+//                                 printfn "Matched with:"
+//                                 xs |> List.iter (fun g -> 
+//                                     printfn "%A" g.Game
+//                                     printfn "%A" g.Reward
+//                                     printfn "--" )
+//                                 printfn "-----" 
+
+//                                 xs |> List.minBy (fun x -> x.Reward)
+                       
+//                     {game with Reward = irrelevantGames.Reward}
+//             ))
+
+let augmentValue gameNumber prefix file = 
+
+    // let scores = [1 .. 500] |> List.fold (fun (sequence, inc) _ -> inc::sequence, inc * 0.9) ([], 1.) |> fst |> List.rev
+
+    let xs = File.ReadAllLines file
+
+    let rows = 
+        xs
+        |> Array.mapi sequenceDataValue
+        |> updateMoveCount
+        // |> Array.map (fun (x: Value) -> 
+        //     if x.Reward = 0. then x
+        //     else 
+        //         let mc = Math.Max(x.MoveCount, x.MoveOrder)
+        //         { x with Reward = scores.[mc - x.MoveOrder] } )   
+        // |> resetScoreForIrrelevantMoves
+        // |> inParallelConcat permuteColumnsForValue
+        // |> inParallelConcat permuteColumnsForPolicy
+        
+
+    // rows
+    // |> Array.groupBy (fun x -> x.Move)
+    // |> Array.map (fun (x,xs) -> x, xs |> Array.length)
+    // |> Array.sortByDescending snd
+    // |> Array.iter (printfn "%A")
+
+    let targetFile = sprintf "%s/data-value-%d.csv" prefix gameNumber
+    if File.Exists targetFile then
+        File.Delete targetFile
+
+    let data = 
+        rows 
+        |> Array.map (fun x -> x.Game, (if x.MoveCount = x.MoveOrder then 1. else 0.), x.Reward)
+                // x.Game, (float 1 / (mc - float x.MoveOrder) * float x.MoveOrder))   
+        // |> Array.groupBy (fun (_,y) -> y = float 0.)
+
+    // let maxCount = 
+    //     rows
+    //     |> Array.map (fun (x: Value) ->  x.Game, x.Reward = 0.)
+    //     |> Array.groupBy snd
+    //     |> Array.map (fun (x,xs) -> x, xs.Length)
+    //     |> Array.maxBy snd
+    //     |> snd
+
+    let toOutputFormat (game, isDone, reward) =
+
+        let gameString = 
+            game 
+            |> encodeKeyGame 26 cardEncoder 
+            |> List.truncate (26 * 11)
+            |> List.map string 
+            |> String.concat ","
+
+        // let fixReward = reward game
+        // let reward = 
+        //     if isDone = 1. && isWin = 1. then 1.
+        //     else -1.
+        
+        // sprintf "%f,%f,%s" isDone reward gameString
+
+        sprintf "%f,%s" reward gameString
+
+        // let game = game |> encodeKeyGame 13 cardEncoder |> List.truncate (13 * 10) |> Seq.map string |> String.concat ","
+        // sprintf "%.2f,%d,%d,%d,%s" (float isDone) longesColumn.Length shortestColumn cardCount game 
+
+    printfn "Before %d, After: %d" xs.Length rows.Length
+    let writer = new StreamWriter(targetFile, false, Encoding.ASCII, 65536)
+
+    data 
+    |> Array.toList
+    |> List.map (List.singleton >> List.map toOutputFormat)
+    |> List.toArray
+    // |> inParallel (oversample maxCount id >> List.map toOutputFormat)
+    |> Array.iter (saveBalancedPolicyNet writer)
+
+    writer.Flush()
+    writer.Close()
+        
 
 // let reBalance file = 
 //     File.ReadAllLines file
@@ -1056,3 +1267,22 @@ let augment gameNumber prefix file =
 //         )
 //     |> oversample
 //     |> saveValidRunCount
+
+
+
+    // // 1 / 25 - 23
+
+    // let numbers = [1. .. 5.] |> List.rev
+    // let powers = numbers |> List.map (fun (x: float) -> 1. / ((float numbers.Length) - (x - 1.)))
+
+    
+
+    // let score = 
+    //     (5, numbers.Length) |> (fun (mc, mt) ->  
+    //         let scores = scores mt
+    //         printfn "%A" scores
+    //         scores.[mt - mc]
+
+    //         // 0.25
+    //     )
+

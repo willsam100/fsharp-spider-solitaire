@@ -63,53 +63,53 @@ let createMnistImage name imageCount columnHeight rowSize (games: float list lis
     Process.Start(startInfo) |> ignore
 
 
-let visulizeColumnPrediction (brainsMover: MonteCarloTreeSearch.IBransMover) (nMove: MutableNode<Game, 'b>) = 
+// let visulizeColumnPrediction (brainsMover: MonteCarloTreeSearch.IBrainsMover) (nMove: MutableNode<Game, 'b>) = 
 
-    let c = 
-        brainsMover.GetColumnOfLongestRun nMove.Game
-        |> List.sortByDescending snd
-        |> List.take 2
+//     let c = 
+//         brainsMover.GetColumnOfLongestRun nMove.Game
+//         |> List.sortByDescending snd
+//         |> List.take 2
 
-    let tabCount = 10  // image width
-    let cnnView = brainsMover.GetCnnView nMove.Game
+//     let tabCount = 10  // image width
+//     let cnnView = brainsMover.GetCnnView nMove.Game
 
-    printfn "Have response: %d" cnnView.ProbsOneH
+//     printfn "Have response: %d" cnnView.ProbsOneH
 
-    let columnHeight = cnnView.ProbsOneH
-    let count = cnnView.ProbsOneC
-    cnnView.ProbsOne
-    |> List.splitInto tabCount
-    |> List.map (List.splitInto columnHeight)
-    |> createImage "one" count columnHeight
+//     let columnHeight = cnnView.ProbsOneH
+//     let count = cnnView.ProbsOneC
+//     cnnView.ProbsOne
+//     |> List.splitInto tabCount
+//     |> List.map (List.splitInto columnHeight)
+//     |> createImage "one" count columnHeight
 
-    let columnHeight = cnnView.ProbsTwoH
-    let count = cnnView.ProbsTwoC
-    cnnView.ProbsTwo
-    |> List.splitInto tabCount
-    |> List.map (List.splitInto columnHeight)
-    |> createImage "two" count columnHeight
+//     let columnHeight = cnnView.ProbsTwoH
+//     let count = cnnView.ProbsTwoC
+//     cnnView.ProbsTwo
+//     |> List.splitInto tabCount
+//     |> List.map (List.splitInto columnHeight)
+//     |> createImage "two" count columnHeight
 
-    let columnHeight = cnnView.ProbsThreeH
-    let count = cnnView.ProbsThreeC
-    cnnView.ProbsThree
-    |> List.splitInto tabCount
-    |> List.map (List.splitInto columnHeight)
-    |> createImage "three" count columnHeight
+//     let columnHeight = cnnView.ProbsThreeH
+//     let count = cnnView.ProbsThreeC
+//     cnnView.ProbsThree
+//     |> List.splitInto tabCount
+//     |> List.map (List.splitInto columnHeight)
+//     |> createImage "three" count columnHeight
 
-    // let columnHeight = cnnView.ProbsFourH
-    // let count = cnnView.ProbsFourC
-    // cnnView.ProbsFour
-    // |> List.splitInto tabCount
-    // |> List.map (List.splitInto columnHeight)
-    // |> createImage "four" count columnHeight
+//     // let columnHeight = cnnView.ProbsFourH
+//     // let count = cnnView.ProbsFourC
+//     // cnnView.ProbsFour
+//     // |> List.splitInto tabCount
+//     // |> List.map (List.splitInto columnHeight)
+//     // |> createImage "four" count columnHeight
 
-    // let columnHeight = cnnView.ProbsFiveH
-    // let count = cnnView.ProbsFiveC
-    // cnnView.ProbsFive
-    // |> List.splitInto tabCount
-    // |> List.map (List.splitInto columnHeight)
-    // |> createImage "five" count columnHeight
+//     // let columnHeight = cnnView.ProbsFiveH
+//     // let count = cnnView.ProbsFiveC
+//     // cnnView.ProbsFive
+//     // |> List.splitInto tabCount
+//     // |> List.map (List.splitInto columnHeight)
+//     // |> createImage "five" count columnHeight
 
-    printfn "Longest Run: %A %A <--------------------"  (((nMove.Game |> GameMover.getRuns |> List.maxBy (fun (c, cs) -> cs.Length) |> fst))) c.[0]
-    printfn "Longest Run (2): %A" c.[1]
-    // false, gameNumber, nMove.Game, movesMade,  history
+//     printfn "Longest Run: %A %A <--------------------"  (((nMove.Game |> GameMover.getRuns |> List.maxBy (fun (c, cs) -> cs.Length) |> fst))) c.[0]
+//     printfn "Longest Run (2): %A" c.[1]
+//     // false, gameNumber, nMove.Game, movesMade,  history

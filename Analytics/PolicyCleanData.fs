@@ -7,6 +7,7 @@ open XPlot.GoogleCharts
 open System
 open SpiderSolitare.Representation
 open SpiderSolitare.Brain
+open XPlot.Plotly
 
 [<Struct>]
 type Policy = {
@@ -114,3 +115,58 @@ let showChartsForPolicyCleanData policyCleanFile =
         |> Chart.WithSize (1200, 1000)
         |> Chart.WithLegend true
         |> Chart.Show
+
+let getFirst (a,b,c) = a
+let getSecond (a,b,c) = b
+let getThird (a,b,c) = c
+
+let plotValue file = 
+    let lines = File.ReadAllLines file
+    Array.shuffle lines
+
+    printfn "%d" lines.Length
+
+    let rows = 
+        lines 
+        // |> Array.truncate 1000 //  (965707 / 8)
+        |> Array.choose (fun x -> 
+            match x.Split "," with 
+            | [|y; x; z |] -> (Some (int x, int z, float y))
+            | _ -> None )
+        |> Array.groupBy getSecond
+        |> Array.map (fun (x,xs) -> 
+
+            Scatter(
+                x = (xs |> Array.map getFirst),
+                y = (xs |> Array.map getThird),
+                name = string x,
+                mode = "markers"
+            ))
+        |> Array.truncate 100
+
+    // let scatter = 
+    //     Scatter3d(
+    //         x = (rows |> Array.map getFirst), 
+    //         z = (rows |> Array.map getSecond),  
+    //         y = (rows |> Array.map getThird), 
+    //         text = "trace 1",
+    //         mode = "markers",
+    //         marker =
+    //             Marker(
+    //                 size = 12.,
+    //                 line =
+    //                     Line(
+    //                         color = "rgba(217, 217, 217, 0.14)",
+    //                         width = 0.5
+    //                     ),
+    //                 opacity = 0.8
+    //             ) )
+
+    // scatter
+    // |> Array.singleton
+    rows
+    |> Chart.Plot
+    |> Chart.WithSize (1200, 1000)
+    |> Chart.Show
+
+    

@@ -9,6 +9,7 @@ open SpiderSolitare
 open Newtonsoft.Json
 open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Representation
+open SampleRegression.Model
 
 type Request = {
     Game: string
@@ -252,26 +253,35 @@ type BrainMoverServer(port) =
             // Thread.Sleep 5000
 
 
-type BrainsMoverClient(port) = 
+type BrainsMoverClient(ports: int list) = 
     
     let gamesPolicyNet = new Dictionary<Game.Game, (MoveType * float) list>()
     let gamesValueNet = new Dictionary<Game.Game, float>()
     let gamesMovesNet = new Dictionary<Game.Game, MoveType list>()
     let moves = new Dictionary<string, Game.MoveType>()
     let r = Random()
-    let client = new HttpClient ()
+
+    let handler = new HttpClientHandler(MaxConnectionsPerServer = 10);
+    let client = new HttpClient(handler)
+    let ob = new Object()
+
+    let getPort(): int = 
+        let x = r.Next(0, List.length ports)
+        ports.[x]
+        
+        
 
     let addHeader (headers : Headers.HttpHeaders) (name, value : string) =
         headers.Add (name, value)
 
-    let  addBody (req : HttpRequestMessage) headers body =
+    let addBody (req : HttpRequestMessage) headers body =
         req.Content <- new StringContent (body)
         let contentTypeHeader =
             headers |> List.tryFind (fun (n, _) -> n = "Content-Type")
         contentTypeHeader
         |> Option.iter (fun (_, v) -> req.Content.Headers.ContentType.MediaType <- v)
 
-    let result (t : System.Threading.Tasks.Task<_>) = t.Result
+    let result (t: Tasks.Task<_>) = t |> Async.AwaitTask
 
     let composeMessage meth (url : Uri) headers body =
         let req = new HttpRequestMessage (meth, url)
@@ -290,28 +300,40 @@ type BrainsMoverClient(port) =
         |> client.SendAsync
         |> result
 
-    let post port url headers body =
+    let post url headers body =
         let rec loop count = 
-            try
+            async {
+                let port = getPort()
+                let url = url port
                 if count <= 0 then 
+                    printfn "Bailing, flask is flaking"
                     failwith "Retry count exceeded"
 
-                composeMessage Net.Http.HttpMethod.Post (Uri url) headers (Some body)
-                |> client.SendAsync
-                |> result
+                let! response = 
+                    composeMessage HttpMethod.Post (Uri url) headers (Some body)
+                    |> client.SendAsync
+                    |> Async.AwaitTask
+                    |> Async.Catch
+                
+                return! 
+                    response 
+                    |> function
+                    | Choice1Of2 x -> async { return x }
+                    | Choice2Of2 e -> 
+                        match e with 
+                        | :? AggregateException -> 
+                            // if count % 5 = 0 then 
+                            //     kickBrain()
 
-            with 
-            | :? AggregateException -> 
-                // if count % 5 = 0 then 
-                //     kickBrain()
-
-                Thread.Sleep (r.Next(1, 5) * 1000)
-                loop (count - 1)
-            | _ -> 
-                // if count % 5 = 0 then 
-                //     kickBrain()
-                Thread.Sleep (r.Next(1, 5) * 1000)
-                loop (count - 1)
+                            Thread.Sleep (r.Next(1, 5) * 100)
+                            loop (count - 1)
+                        | e -> 
+                            // if count % 5 = 0 then 
+                            //     kickBrain()
+                            printfn "Ex %s" e.Message
+                            Thread.Sleep (r.Next(1, 5) * 100)
+                            loop (count - 1)
+            }
         loop 2000 // Super high number, only to bail out on on infite loops due to coding error. 
 
     let bodyText (resp : HttpResponseMessage) =
@@ -322,37 +344,41 @@ type BrainsMoverClient(port) =
         |> List.mapi (fun i x -> if i = moveIndex then "1" else "0")
         |> String.concat ""
 
-    let getPolicy game continuation = 
-        match gamesPolicyNet.TryGetValue game with 
-        | true, r -> r
-        | false, _ -> 
-            try 
-                // State is not shared accross threads. 
-                // This results in duplicate data.
-                // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
-                // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
-                // A full game does not have more than 500 moves, most of the time training is down to the first card deck
-                // which should be completed within 100 moves. 
-                // if gamesPolicyNet.Count > 1000 then 
-                //     gamesPolicyNet.Clear()
+    let getPolicy game continuation : (MoveType * float) list Async = 
+    
+        // match gamesPolicyNet.TryGetValue game with 
+        // | true, r -> r
+        // | false, _ -> 
+        try 
+            // State is not shared accross threads. 
+            // This results in duplicate data.
+            // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
+            // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
+            // A full game does not have more than 500 moves, most of the time training is down to the first card deck
+            // which should be completed within 100 moves. 
+            // if gamesPolicyNet.Count > 1000 then 
+            //     gamesPolicyNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame 13 game
+                // let encoded = MonteCarloTreeSearch.encodeGame 13 game
+                let encoded = encodeGameWtihStock 26 (26 * 11) game
                 let r = continuation encoded
-                gamesPolicyNet.Add (game, r)
+                // gamesPolicyNet.Add (game, r)
                 r
-
-            with 
-            | e -> 
-                printfn "Exception occured:"
-                printfn "%A" game
-                printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
-                printfn "%s" <| e.ToString()
-                raise e
+        with 
+        | e -> 
+            printfn "Exception occured:"
+            printfn "%A" game
+            printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
+            printfn "%s" <| e.ToString()
+            raise e
+        
 
     let getValue game continuation = 
-        match gamesValueNet.TryGetValue game with 
-        | true, v -> v
-        | false, _ -> 
+        // match gamesValueNet.TryGetValue game with 
+        // | true, v -> v
+        // | false, _ -> 
+            // let reward = MonteCarloTreeSearch.reward game        
+
             try 
                 // State is not shared accross threads. 
                 // This results in duplicate data.
@@ -363,16 +389,16 @@ type BrainsMoverClient(port) =
                 // if gamesValueNet.Count > 10000 then 
                 //     gamesValueNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame 26 game
+                let encoded = encodeGameWtihStock 26 (26 * 11) game
                 let v = continuation encoded
-                gamesValueNet.Add (game, v)
+                // gamesValueNet.Add (game, v)
                 v
 
             with 
             | e -> 
                 printfn "Exception occured:"
                 printfn "%A" game
-                printfn "%A" <| MonteCarloTreeSearch.encodeGame 26 game
+                printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
                 printfn "%s" <| e.ToString()
                 raise e
 
@@ -459,7 +485,7 @@ type BrainsMoverClient(port) =
         |> moveEncoder.Decode
 
 
-    interface MonteCarloTreeSearch.IBransMover with 
+    interface MonteCarloTreeSearch.IBrainsMover with 
         member this.Flush() =
             moves.Clear()
             gamesPolicyNet.Clear()
@@ -471,82 +497,36 @@ type BrainsMoverClient(port) =
 //            timed "policy" <| fun () -> 
                 getPolicy game
                     (fun encoded -> 
-                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
-                        let body = post port (sprintf "http://localhost:%d/predict" port) ["Content-Type", "application/json"]  body |> bodyText
-                        let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
+                        async {
+                        
+                            let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+                            let! body = post (sprintf "http://localhost:%d/predict") ["Content-Type", "application/json"]  body 
+                            let body = body |> bodyText
+                            let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
 
-                        // let moves = 
-                        //     game 
-                        //     |> GameMover.validMoves
-                        //     |> List.choose (function 
-                        //         | Move m -> Some m
-                        //         | _ -> None)
+                            // let moves = 
+                            //     game 
+                            //     |> GameMover.validMoves
+                            //     |> List.choose (function 
+                            //         | Move m -> Some m
+                            //         | _ -> None)
 
-                        Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove [] x, y)
+                            return Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove [] x, y)
+                        }
                     )
         
         member this.GetValue game = 
 //            timed "value" <| fun () -> 
                 getValue game 
                     (fun encoded -> 
-                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
-                        let responseValue = 
-                            post port (sprintf "http://localhost:%d/value" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponseValue>
-                        responseValue.Value            
+                        async {
+                            let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+                            let! responseValue = 
+                                post (sprintf "http://localhost:%d/value") ["Content-Type", "application/json"]  body 
+                                
+                            let responseValue = responseValue |> bodyText |> JsonConvert.DeserializeObject<ResponseValue>
+                            return responseValue.Value   
+                        }         
                     )
 
-        member this.GetColumnOfLongestRun game = 
-//            timed "value" <| fun () -> 
-                getColumnOfLongestRun game 
-                    (fun encoded -> 
-                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
-                        let response = 
-                            post port (sprintf "http://localhost:%d/column" port) ["Content-Type", "application/json"]  body |> bodyText 
-                        let responseValue = response |> JsonConvert.DeserializeObject<LongestColumn>
 
-                        responseValue.Columns
-                        |> List.map (fun x -> Coord.parseColumn (x + 1))
-                        |> fun cs -> List.zip cs responseValue.Probs           
-                    )
-
-        member this.GetCnnView game = 
-//            timed "value" <| fun () -> 
-                getColumnOfLongestRun game 
-                    (fun encoded -> 
-                        let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
-                        let response = 
-                            post port (sprintf "http://localhost:%d/columnview" port) ["Content-Type", "application/json"]  body |> bodyText 
-
-                        // printfn "%s" response
-
-                        let responseValue = response |> JsonConvert.DeserializeObject<CnnView>
-
-                        responseValue
-                    )
-
-        member this.GetMnist encoded = 
-//            timed "value" <| fun () -> 
-                let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
-                let response = 
-                    post port (sprintf "http://localhost:%d/mnistview" port) ["Content-Type", "application/json"]  body |> bodyText 
-
-                // printfn "%s" response
-                let responseValue = response |> JsonConvert.DeserializeObject<MnistView>
-                responseValue
-
-
-        member this.GetMoves game = 
-            getMoves game 
-                (fun encoded -> 
-                    let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
-                    let responseValue = 
-                        post port (sprintf "http://localhost:%d/moves" port) ["Content-Type", "application/json"]  body |> bodyText |> JsonConvert.DeserializeObject<ResponseMoves>
-
-                    printfn "%s" 
-                        (responseValue.Moves |> List.map (fun x -> sprintf "%.2f" x) |> String.concat ",")
-
-                    responseValue.Moves
-                    |> List.mapi (fun i x -> i,x )
-                    |> List.filter (fun (i,x) -> x > 0.5)
-                    |> List.map (fst >> toOneHot >>  moveEncoder.Decode)
-                ) 
