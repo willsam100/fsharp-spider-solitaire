@@ -9,7 +9,6 @@ open SpiderSolitare
 open Newtonsoft.Json
 open SpiderSolitare.MonteCarloTreeSearch
 open SpiderSolitare.Representation
-open SampleRegression.Model
 
 type Request = {
     Game: string
