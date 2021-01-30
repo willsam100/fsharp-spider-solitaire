@@ -173,10 +173,17 @@ module Tableau =
     let gameString (tab: Tableau) = tab.GameString()
     let toString (tab: Tableau) = tab.ToString()
 
-    let firstCard tab = 
-        match tab.Visible with 
-        | [] -> None 
-        | xs -> List.head xs |> Some
+    let getCard index tab = 
+        if index < tab.Visible.Length then 
+            tab.Visible |> List.skip index |> List.head |> Some
+        else None 
+
+    let firstCard = getCard 0
+
+    let map f tab = 
+        let vis = tab.Visible |> List.map f
+        let hid = tab.Hidden |> List.map f
+        {Visible = vis; Hidden = hid}
 
 
     let length tab = List.length tab.Visible + List.length tab.Hidden
@@ -185,6 +192,10 @@ module Tableau =
 
     let getVisible tab = 
         tab.Visible
+
+    let getLengthOfMove card tab = 
+        let index = tab.Visible |> List.findIndex (fun t -> t = card)
+        index + 1
 
     let create cards = 
         match cards with 
@@ -349,6 +360,19 @@ type SuitCompletedStatus =
     | Six
     | Seven
     | Eight
+
+module SuitCompletedStatus = 
+
+    let toCardCount = function 
+        | Zero -> 0 * 13
+        | One -> 1 * 13
+        | Two -> 2 * 13
+        | Three -> 3 * 13
+        | Four -> 4 * 13
+        | Five -> 5 * 13
+        | Six -> 6 * 13
+        | Seven -> 7 * 13
+        | Eight -> 8 * 13
 
 [<StructuredFormatDisplay("{DebugString}")>]
 type Game = 
@@ -555,7 +579,7 @@ module Game =
             // | _ -> false   
 
             match game.Hearts, game.Spades, game.Diamonds, game.Clubs with 
-            | _, Five, _, _ -> true
+            | _, Two, _, _ -> true
             | Two, Two, Two, Two -> true
             | Eight, _, _, _ -> true
             | _, _, Eight, _ -> true
@@ -564,6 +588,15 @@ module Game =
 
     let toString game =
         game.ToString()
+
+    let tableauCardCount = getAllTabs >> List.sumBy Tableau.length 
+
+    let cardCountCompleted game = 
+        let spades = game.Spades |> SuitCompletedStatus.toCardCount
+        let hearts = game.Hearts |> SuitCompletedStatus.toCardCount
+        let diamonds = game.Diamonds |> SuitCompletedStatus.toCardCount
+        let clubs = game.Clubs |> SuitCompletedStatus.toCardCount
+        spades + hearts + diamonds + clubs
 
 type MoveType = 
     | Stock
@@ -577,10 +610,19 @@ module MoveType =
         | Flip c -> f c
         | Move c -> m c
 
+    let map f = function 
+        | Stock -> Stock
+        | Flip c -> Flip c
+        | Move c -> f c
+
     let foldMove a f = function 
     | Stock -> a
     | Flip _ -> a
     | Move c -> f c
+
+    let isStock = function 
+        | Stock -> true
+        | _ -> false
 
 type GameResult = 
     | Continue of (Game * MoveType list)
@@ -612,6 +654,11 @@ module GameResult =
     | Lost g -> Lost g
     | Won g -> Won g
     | Continue (g, m) -> f g m
+
+    let getGame = function 
+    | Lost g -> failwith "Can't get Lost game"
+    | Won g -> failwith "Can't get Won game"
+    | Continue (g, m) -> g
 
     // let iter g f = fold () () f g
 
@@ -698,11 +745,14 @@ module GameMover =
         match validMoves game |> List.contains move with 
         | false -> Lost game
         | true -> 
+            // printfn "Move:%A" move
             let gameOption = 
                 match move with 
                 | Stock -> Game.playStock game //|> toGameResultOption
                 | Flip column -> game |> Game.flip column |> Some //|> toGameResult
                 | Move coord -> game |> Game.playMove coord //|> toGameResultOption
+
+            // gameOption |> Option.iter (printfn "----\n%A\n---")
 
             gameOption 
             |> Option.map (fun game -> 

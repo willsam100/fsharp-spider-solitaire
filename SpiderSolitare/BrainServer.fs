@@ -16,9 +16,16 @@ type Request = {
 }
 
 type ResponsePolicy = {
-    Moves:string seq
-    Probs: float list
+    C: float list
+    // T: float list
+    // N: float list
 }
+
+// type ResponsePolicy = {
+//     F: float list
+//     T: float list
+//     C: float list
+// }
 
 type ResponseValue = {
     Value: float
@@ -34,7 +41,7 @@ type ResponseMoves = {
     Moves: float list
 }
 
-let moveEncoder = Representation.ActionEncoder()
+
 let allMoves = List.replicate 1171 0
 
 let timed name f = 
@@ -110,6 +117,7 @@ let movePlusOne increment = function
     | Move c -> 
         let value = CardModule.getValue c.Card
         match value, value + increment with 
+        | 1, 0 -> None // Queen to King is not a valid move. This will change to King -> Ace.
         | 12, 13 -> None // Queen to King is not a valid move. This will change to King -> Ace.
         | 13, _ -> None // Move with Kings are questionable. A transformation may not be valid ie to an empty column
         | _, _ -> { c with Card = CardModule.increment increment c.Card} |> Move |> Some
@@ -254,10 +262,10 @@ type BrainMoverServer(port) =
 
 type BrainsMoverClient(ports: int list) = 
     
-    let gamesPolicyNet = new Dictionary<Game.Game, (MoveType * float) list>()
-    let gamesValueNet = new Dictionary<Game.Game, float>()
-    let gamesMovesNet = new Dictionary<Game.Game, MoveType list>()
-    let moves = new Dictionary<string, Game.MoveType>()
+//    let gamesPolicyNet = new Dictionary<Game.Game, (MoveType * float) list>()
+//    let gamesValueNet = new Dictionary<Game.Game, float>()
+//    let gamesMovesNet = new Dictionary<Game.Game, MoveType list>()
+//    let moves = new Dictionary<string, Game.MoveType>()
     let r = Random()
 
     let handler = new HttpClientHandler(MaxConnectionsPerServer = 10);
@@ -324,13 +332,12 @@ type BrainsMoverClient(ports: int list) =
                             // if count % 5 = 0 then 
                             //     kickBrain()
 
-                            Thread.Sleep (r.Next(1, 5) * 100)
+                            Thread.Sleep (r.Next(1, 5) * 500)
                             loop (count - 1)
                         | e -> 
                             // if count % 5 = 0 then 
                             //     kickBrain()
-                            printfn "Ex %s" e.Message
-                            Thread.Sleep (r.Next(1, 5) * 100)
+                            Thread.Sleep (r.Next(1, 5) * 500)
                             loop (count - 1)
             }
         loop 2000 // Super high number, only to bail out on on infite loops due to coding error. 
@@ -343,7 +350,7 @@ type BrainsMoverClient(ports: int list) =
         |> List.mapi (fun i x -> if i = moveIndex then "1" else "0")
         |> String.concat ""
 
-    let getPolicy game continuation : (MoveType * float) list Async = 
+    let getPolicy (game) continuation = 
     
         // match gamesPolicyNet.TryGetValue game with 
         // | true, r -> r
@@ -359,7 +366,8 @@ type BrainsMoverClient(ports: int list) =
             //     gamesPolicyNet.Clear()
 
                 // let encoded = MonteCarloTreeSearch.encodeGame 13 game
-                let encoded = encodeGameWtihStock 26 (26 * 11) game
+                // let encoded = encodeGameWithStock 26 (26 * 11) game
+                let encoded = encodeOneHotGame 13 1 game |> List.map string |> String.concat ","
                 let r = continuation encoded
                 // gamesPolicyNet.Add (game, r)
                 r
@@ -367,7 +375,7 @@ type BrainsMoverClient(ports: int list) =
         | e -> 
             printfn "Exception occured:"
             printfn "%A" game
-            printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
+            // printfn "%A" <| MonteCarloTreeSearch.encodeGame 13 game
             printfn "%s" <| e.ToString()
             raise e
         
@@ -388,7 +396,7 @@ type BrainsMoverClient(ports: int list) =
                 // if gamesValueNet.Count > 10000 then 
                 //     gamesValueNet.Clear()
 
-                let encoded = encodeGameWtihStock 26 (26 * 11) game
+                let encoded = encodeGameWithStock 26 (26 * 11) game
                 let v = continuation encoded
                 // gamesValueNet.Add (game, v)
                 v
@@ -402,32 +410,32 @@ type BrainsMoverClient(ports: int list) =
                 raise e
 
     let getMoves game continuation = 
-        match gamesMovesNet.TryGetValue game with 
-        | true, v -> v
-        | false, _ -> 
-            try 
+//        match gamesMovesNet.TryGetValue game with 
+//        | true, v -> v
+//        | false, _ -> 
+        try 
 
-                // State is not shared accross threads. 
-                // This results in duplicate data.
-                // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
-                // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
-                // A full game does not have more than 500 moves, most of the time training is down to the first card deck
-                // which should be completed within 100 moves. 
-                // if gamesMovesNet.Count > 10000 then 
-                //     gamesMovesNet.Clear()
+            // State is not shared accross threads. 
+            // This results in duplicate data.
+            // Without this below, the data builds up and we get a 'memory leak' if we run the code for a long time. 
+            // It brings the program to halt, as it starts thrasing on disk (oberseved 128GB or RAM usage).
+            // A full game does not have more than 500 moves, most of the time training is down to the first card deck
+            // which should be completed within 100 moves. 
+            // if gamesMovesNet.Count > 10000 then 
+            //     gamesMovesNet.Clear()
 
-                let encoded = MonteCarloTreeSearch.encodeGame 96 game
-                let v = continuation encoded
-                gamesMovesNet.Add (game, v)
-                v
+            let encoded = MonteCarloTreeSearch.encodeGame 96 game
+            let v = continuation encoded
+//                gamesMovesNet.Add (game, v)
+            v
 
-            with 
-            | e -> 
-                printfn "Exception occured:"
-                printfn "%A" game
-                printfn "%A" <| MonteCarloTreeSearch.encodeGame 96 game
-                printfn "%s" <| e.ToString()
-                raise e                
+        with 
+        | e -> 
+            printfn "Exception occured:"
+            printfn "%A" game
+            printfn "%A" <| MonteCarloTreeSearch.encodeGame 96 game
+            printfn "%s" <| e.ToString()
+            raise e                
 
     let getColumnOfLongestRun game continuation = 
         try 
@@ -476,41 +484,37 @@ type BrainsMoverClient(ports: int list) =
             //     |> Option.map (fun x -> Move x)
             //     |> Option.defaultValue (Move m)
             // | x -> x            
-        move
-        |> Int32.Parse
-        |> MonteCarloTreeSearch.decodeMove 
-        |> Array.map string 
-        |> String.concat ""
-        |> moveEncoder.Decode
+        move |> Int32.Parse |> MoveEncoding.intToMove
 
+    member this.GetPolicy (encoded:string) = 
+        async {
+            let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
+            let! body = post (sprintf "http://localhost:%d/predict") ["Content-Type", "application/json"]  body 
+            let body = body |> bodyText
+            let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
+            // return (bestMoves.F, bestMoves.T, bestMoves.C)
+            return bestMoves.C //@ bestMoves.T @ bestMoves.N
+        }
 
     interface MonteCarloTreeSearch.IBrainsMover with 
-        member this.Flush() =
-            moves.Clear()
-            gamesPolicyNet.Clear()
-            gamesMovesNet.Clear()
-            gamesValueNet.Clear()
+        member this.Flush() = ()
+//            moves.Clear()
+//            gamesPolicyNet.Clear()
+//            gamesMovesNet.Clear()
+//            gamesValueNet.Clear()
 
 
-        member this.GetBestMove(game:Game.Game) = 
+        member this.GetBestMove(game:Game) = 
 //            timed "policy" <| fun () -> 
                 getPolicy game
-                    (fun encoded -> 
+                    (fun (encoded:string) -> 
                         async {
-                        
                             let body = {Game = encoded; ValidMoves = ""} |> JsonConvert.SerializeObject
                             let! body = post (sprintf "http://localhost:%d/predict") ["Content-Type", "application/json"]  body 
                             let body = body |> bodyText
                             let bestMoves = body |> JsonConvert.DeserializeObject<ResponsePolicy>
-
-                            // let moves = 
-                            //     game 
-                            //     |> GameMover.validMoves
-                            //     |> List.choose (function 
-                            //         | Move m -> Some m
-                            //         | _ -> None)
-
-                            return Seq.zip bestMoves.Moves bestMoves.Probs |> Seq.toList |> List.map (fun (x,y) -> getMove [] x, y)
+                            // return (bestMoves.F, bestMoves.T, bestMoves.C)
+                            return bestMoves.C
                         }
                     )
         

@@ -8,18 +8,9 @@ open System.IO
 open System.Collections.Generic
 open System.Diagnostics
 open SpiderSolitare
-
+open SpiderSolitare.Representation
+open SpiderSolitare.Representation
 let rand = Random()
-let cardEncoder = CardEncoderKeyed()
-
-let encodeMove (m: int16[]) = 
-    let move = int16 1
-    m |> Array.findIndex (fun x -> x = move)
-
-let decodeMove int = 
-    let x = Array.replicate 1171 0
-    x.[int] <- 1
-    x
     
 //let timed name f = 
 //    let s = Stopwatch()
@@ -74,7 +65,8 @@ type MnistView = {
 }
 
 type IBrainsMover = 
-    abstract member GetBestMove: Game -> (MoveType * float) list Async
+    // abstract member GetBestMove: string -> (float list * float list * float list) Async
+    abstract member GetBestMove: Game -> float list Async
     abstract member GetValue: Game -> float Async
     // abstract member GetColumnOfLongestRun: Game -> (Column * float) list
     // abstract member GetCnnView: Game -> CnnView
@@ -110,7 +102,7 @@ type MutableNode<'a ,'b when 'a :equality>(game:'a, prob: float, reward: float, 
 let inline getMetrics (gameToMetrics: IDictionary<int, float * float>) (node: MutableNode<'a, 'b>) = 
     match gameToMetrics.TryGetValue(node.GameHashCode) with 
     | true, x -> x
-    | false, _ -> 0., 0.    
+    | false, _ -> -10., 0.    
 
 let nextMove parentVisitCount (nodes: (MutableNode<'a, 'b> * float * float * float) list) =
 
@@ -118,8 +110,10 @@ let nextMove parentVisitCount (nodes: (MutableNode<'a, 'b> * float * float * flo
     |> List.map (fun (node, t, n, p) ->
         if n = 0. then 
             node, n, Double.MaxValue
+        elif p >= 0.7 then
+            node, n, Double.MaxValue
         else 
-            node, n, (1. * p * Math.Sqrt(Math.Log parentVisitCount ) / n ) + (t / n) 
+            node, n, (2. * p * Math.Sqrt(Math.Log parentVisitCount ) / n ) + (t / n) 
         )
     |> List.sortByDescending (fun (_, _, ucb1) -> ucb1)
     |> List.map (fun (x, y, _) -> x,y)
@@ -167,7 +161,7 @@ let reward game =
 let encodeGame size game = 
     game |> encodeKeyGame size cardEncoder |> Seq.take (13 * 10) |> Seq.map string |> String.concat ","
 
-let encodeGameWtihStock size stock game = 
+let encodeGameWithStock size stock game = 
     game |> encodeKeyGame size cardEncoder |> Seq.take stock |> Seq.map string |> String.concat ","
 
 
@@ -225,13 +219,13 @@ type ExOp<'a, 'b when 'a : equality> =
     | AddLeaf of MutableNode<'a, 'b>
     | LinkSeenNode of (int * int list * int list)
     
-let createMutableNode (parentNode: MutableNode<'a, 'b>) move probabiltiy g siblingCount terminalValue  =
+let createMutableNode (parentNode: MutableNode<'a, 'b>) move probability g siblingCount terminalValue  =
     let reward = 
         match terminalValue with 
         | Some x -> if x then winningNodeReward else -1.
-        | None -> 0.
+        | None -> -10.
 
-    MutableNode(g, probabiltiy, reward, Some move, parentNode.Depth + 1, Some parentNode, terminalValue, siblingCount)
+    MutableNode(g, probability, reward, Some move, parentNode.Depth + 1, Some parentNode, terminalValue, siblingCount)
 
 let expandNode getMoves (pastGames: IDictionary<int, int Set>) (node: MutableNode<'a, 'b>) = 
     let moves = getMoves node.Game
@@ -243,7 +237,7 @@ let expandNode getMoves (pastGames: IDictionary<int, int Set>) (node: MutableNod
         printfn "T:%A" node.TerminalValue
         failwith "Tree is invalid - we should not be expanding."
     
-    let shouldAddNodeToTreee (nextGame: MutableNode<'a, 'b>) =
+    let shouldAddNodeToTree (nextGame: MutableNode<'a, 'b>) =
         if parents |> Set.contains nextGame.GameHashCode then
             None
         else
@@ -277,7 +271,7 @@ let expandNode getMoves (pastGames: IDictionary<int, int Set>) (node: MutableNod
         let expandOperation =
             terminalValue
             |> createMutableNode node move prob g moves.Length
-            |> shouldAddNodeToTreee
+            |> shouldAddNodeToTree
             
         updatePathToParents g 
         expandOperation ) 
@@ -328,25 +322,27 @@ let printTreeWithDepth maxDepth (gameToMetrics: IDictionary<int, float * float>)
 
 let printTreeWithDepthAndWidth maxWidth maxDepth (gameToMetrics: IDictionary<int, float * float>) (node:MutableNode<'a, 'b>) =
     let rec loop depth (node: MutableNode<'a, 'b>) =
-        let s = List.replicate depth "  " |> String.concat ""
+        let s = List.replicate depth "|  " |> String.concat ""
         let (t,n) = getMetrics gameToMetrics node
-        printfn "%s%d (%0.4f, %d) isTerm:%A R:%f ChildrenCount:%d" s node.GameHashCode t (int n) node.TerminalValue node.Reward node.Children.Length 
+        printfn "%s%d (%0.4f, %d) isTerm:%A R:%f ChildrenCount:%d Prob:%f (d:%d) %A" s node.GameHashCode t (int n) node.TerminalValue node.Reward node.Children.Length node.Prob depth node.Move
         if depth < maxDepth then 
             node.Children
-            |> List.sortByDescending (fun x -> getMetrics gameToMetrics x |> snd)
+            // |> List.sortByDescending (fun x -> getMetrics gameToMetrics x |> snd)
+            |> List.sortByDescending (fun x -> x.Prob)
             |> List.truncate maxWidth
             |> List.iter (loop (depth + 1)) 
 
     loop 0 node
 
-let rec printMoves gameToMetrics (node: MutableNode<'a, 'b>) = 
-    let (t,n) = getMetrics gameToMetrics node
-    printfn "%d (%0.4f, %d) isTerm:%A R:%f ChildrenCount:%d %A" node.GameHashCode t (int n) node.TerminalValue node.Reward node.Children.Length node.Move
-    match node.Parent with 
-    | Some x -> printMoves gameToMetrics x
-    | None -> ()
+let getMoves (node: MutableNode<'a, 'b>) = 
+    let rec getMoves moves (node: MutableNode<'a, 'b>) = 
+        match node.Parent with
+        | Some x -> getMoves (x:: moves) x
+        | None -> List.tail moves
+    getMoves [node] node
 
-let iteration logger maxDepth depth expandNode rollout gameToMetrics (nRoot: MutableNode<'a, 'b>) =
+
+let iteration log logger getMaxReward maxDepth depth expandNode rollout gameToMetrics (nRoot: MutableNode<'a, 'b>) =
     
     let rec loop depth (node: MutableNode<'a,'b>) =
         logger nRoot
@@ -364,38 +360,36 @@ let iteration logger maxDepth depth expandNode rollout gameToMetrics (nRoot: Mut
         | [] ->
             match node.TerminalValue with 
             | Some _ ->
-                // let (_,n) = getMetrics gameToMetrics node
-                setParentsValues gameToMetrics node node.Reward
-
-                // if node.Reward = winningNodeReward then 
-                //     printfn "Terminal Value"
-                //     printMoves gameToMetrics node
-                node.Reward
-                
-                // let (_,n') = getMetrics gameToMetrics node
-                // if n' = n then
-                //     let nodes = pastGames.[node.GameHashCode] |> Set.add node.GameHashCode 
-                //     printTree gameToMetrics nRoot
-                //     printfn "%A" <| Set.toList nodes
-                //     printfn "%f" node.Reward
-                //     failwithf "Why are we not updating"
+                if node.Reward = winningNodeReward then 
+                    getMoves node, 0.
+                else
+                    if log then printfn "\nEnd of the line..."
+                    node.Reward <- -0.99
+                    setParentsValues gameToMetrics node node.Reward
+                    [], node.Reward
 
             | None ->
                 let leaves = expandNode node
                 match leaves with 
                 | [] ->
-                    // This is considered a terminal state (the game is trying to repeat a state). C
-                    // Consider playing this move a loss as it would only cause a loop.
-                    let value = 0.
-    //                    let nodes = pastGames.[node.GameHashCode] |> Set.add node.GameHashCode
-                    setParentsValues gameToMetrics node value
-                    value
+                    if node.Reward = winningNodeReward then 
+                        printfn "Error (or maybe). This is happening."
+                        printfn "R:%A T:%A" node.Reward node.TerminalValue
+                        printfn "%A" node.Game
+                        getMoves node, 0.
+                    else 
+                        // This is considered a terminal state (the game is trying to repeat a state). C
+                        // Consider playing this move a loss as it would only cause a loop.
+                        let value = -0.99
+                        setParentsValues gameToMetrics node value
+                        if log then printfn "\nEnd of the line (2)..."
+                        [], -0.99
 
                 | _ ->
                     node.Children <- leaves
 
                     node.Children 
-                    |> List.filter (fun x -> x.Reward = 0.)
+                    |> List.filter (fun x -> x.Reward = -10.)
                     |> List.map (fun (nextNode: MutableNode<'a, 'b>) -> 
                         async {
                             let! reward = rollout (nextNode.Game, nextNode.GameHashCode, 50)
@@ -406,55 +400,42 @@ let iteration logger maxDepth depth expandNode rollout gameToMetrics (nRoot: Mut
                     |> Async.RunSynchronously
 
                     node.Children 
-                    |> List.iter (fun (nextNode: MutableNode<'a, 'b>) -> 
-                        let numberOfParentUpdates = if nextNode.Reward = winningNodeReward then 1000 else 1
-                        
-                        // Once we have found the winning node we must manipulate the higher layers to reflect that we have found the winning node.
-                        // It would be better if we could skip out of the loop, and just returns the moves walking back up the tree.     
-                        for i in [1 .. numberOfParentUpdates] do
-                            setParentsValues gameToMetrics nextNode nextNode.Reward   
+                    |> List.iter (fun (nextNode: MutableNode<'a, 'b>) ->
+                        setParentsValues gameToMetrics nextNode nextNode.Reward   
                     )
 
                     let maxNode = node.Children |> List.maxBy (fun x -> x.Reward)
+                    let maxProb = node.Children |> List.maxBy (fun x -> x.Prob)
 
-                    if depth > maxDepth || maxNode.Reward = winningNodeReward then 
-                        // if maxNode.Reward = winningNodeReward then 
-                        //     printfn "Expanded value"
-                        //     printMoves gameToMetrics maxNode
+                    if depth > maxDepth then
+                        if log then printfn "\nHit Max Depth (%.0f): %f" depth maxNode.Reward
+                        [], maxNode.Reward
+                    elif maxNode.Reward = winningNodeReward then
+                        if log then printfn "\nFound gold: %f"maxNode.Reward
+                        getMoves maxNode, 0.
+                    // elif maxProb.Prob < 0.5 then
+                    //     if log then printfn "\nNot confident: %f"maxNode.Prob
+                    //     printTreeWithDepthAndWidth 2 120 gameToMetrics nRoot
 
-                        maxNode.Reward
+                    //     let parent = maxProb.Parent |> Option.get
+                    //     printfn "%A" parent.Game
+
+                    //     printfn "%A" (Option.get maxProb.Move)
+                    //     printfn "%A" maxProb.Game
+                    //     maxProb.Game  |> MoveEncoding.sortGame |> snd |> printfn "%A" 
+
+                    //     [], maxProb.Reward
                     else 
                         loop (depth + 1.) node
                     
         | (nextNode: MutableNode<'a,'b>,n)::_ ->            
             if n = 0. then
                 nextNode.Reward <- rollout (nextNode.Game, nextNode.GameHashCode, 50) |> Async.RunSynchronously
+                if log then printfn "\nExplored the unexplored: %f" nextNode.Reward
 
-                // if depth % 3. = 0. then 
-                //     nextNode.Reward <- rollout (nextNode.Game, nextNode.GameHashCode, 0, 50)
-                // else nextNode.Reward <- 0.
-
-                let numberOfParentUpdates = 
-                    if nextNode.Reward = winningNodeReward then 1000 else
-                    1
-                
-                // Once we have found the winning node we must manipulate the higher layers to reflect that we have found the winning node.
-                // It would be better if we could skip out of the loop, and just returns the moves walking back up the tree.     
-                for _ in [1 .. numberOfParentUpdates] do
-                    setParentsValues gameToMetrics nextNode nextNode.Reward    
-            
-                // let (_,n) = getMetrics gameToMetrics nextNode
-                // if n = 0. then
-                //     let nodes = pastGames.[nextNode.GameHashCode] |> Set.add nextNode.GameHashCode
-                //     printTree gameToMetrics nRoot
-                //     printfn "%A" (nodes)
-                //     failwithf "We did not update the node: %d" nextNode.GameHashCode
-
-                // if node.Reward = winningNodeReward then 
-                //     printfn "Single value"
-                //     printMoves gameToMetrics node
-
-                node.Reward
+                if nextNode.Reward = winningNodeReward then 
+                    getMoves nextNode, 0.
+                else [], nextNode.Reward
                 
             else
                 loop (depth + 1.) nextNode
@@ -470,30 +451,27 @@ let getDepth node =
     loop 0 node |> float
 
 
-let logger log gameToMetrics count totalCount root maxReward maxDepth =
+let logger log gameToMetrics getTimeRemaining root maxReward maxDepth =
     let (t,n) = getMetrics gameToMetrics root
     if log then 
-        if count <= 0 then     
-                let progress = 
-                    let count = totalCount - count |> float
-                    let progress = count / float totalCount
-                    progress * 100.
-                Console.SetCursorPosition (0, Console.CursorTop)
-                List.replicate 100 " " |> String.concat "" |> Console.Write
-                Console.SetCursorPosition (0, Console.CursorTop)
-                sprintf "%.2f%% P: %.2f%% T: %.2f MaxReward: %.4f  N: %.0f TC: %d MD:%.0f" progress ((t / n) * 100.) t maxReward n totalCount maxDepth |> Console.WriteLine
+        let tm: TimeSpan = getTimeRemaining()
+        Console.SetCursorPosition (0, Console.CursorTop)
+        List.replicate 150 " " |> String.concat "" |> Console.Write
+        Console.SetCursorPosition (0, Console.CursorTop)
+        let progress = tm.ToString("hh\:mm\:ss")
+        let s = sprintf "%s P: %.2f%% T: %.2f MaxReward: %.4f  N: %.0f MD:%.0f" progress ((t / n) * 100.) t maxReward n maxDepth
+
+        if tm.Seconds = 0 && tm.Milliseconds < 1 then     
+                // let progress = 
+                    // let count = totalCount - count |> float
+                    // let progress = count / float totalCount
+                    // progress * 100.
+            s |> Console.WriteLine
                 
-        else 
-            // if count % 100 = 0 then 
-                Console.SetCursorPosition (0, Console.CursorTop)
-                let progress = 
-                    let count = totalCount - count |> float
-                    let progress = count / float totalCount
-                    progress * 100.
-                sprintf "%.2f%% P: %.2f%% T: %.2f MaxReward: %.4f  N: %.0f TC: %d MD:%.0f" progress ((t / n) * 100.) t maxReward n totalCount maxDepth |> Console.Write
+        else s |> Console.Write
 
 type ISearcher = 
-    abstract member Search:  totalCount:int -> maxLookAhead:float -> root:MutableNode<Game, MoveType> -> bool
+    abstract member Search: root:MutableNode<Game, MoveType> -> MutableNode<Game, MoveType> list
     abstract member GetProgress: unit ->  float list
     abstract member BrainServer: IBrainsMover option
     abstract member Init: MutableNode<Game,MoveType> -> unit 
@@ -501,87 +479,97 @@ type ISearcher =
     abstract member PrintTree: maxDepth:int -> root:MutableNode<Game, MoveType> -> unit
     abstract member ResetMaxReward: unit -> unit
     abstract member MaxTime: TimeSpan
+    abstract member Copy: unit -> ISearcher
 
-type SearcherRandomer(log) = 
-    let pastGames = Dictionary<_, _>()
-    let gameToMetrics = new Dictionary<_, _>()
-    let logger = logger log gameToMetrics
+// type SearcherRandomly(log) = 
+//     let pastGames = Dictionary<_, _>()
+//     let gameToMetrics = Dictionary<_, _>()
+//     let logger = logger log gameToMetrics
 
-    interface ISearcher with 
-        member this.MaxTime = TimeSpan.Zero
-        member this.ResetMaxReward() = ()
+//     interface ISearcher with 
+//         member this.MaxTime = TimeSpan.Zero
+//         member this.ResetMaxReward() = ()
 
-        member this.Init root = 
-            pastGames.Clear()
-            pastGames.[root.GameHashCode] <-Set.empty
-            gameToMetrics.Clear()
+//         member this.Copy() = 
+//             SearcherRandomly(log) :> ISearcher
 
-        member this.GetProgress() = []
-        member ths.BrainServer = None
+//         member this.Init root = 
+//             pastGames.[root.GameHashCode] <-Set.empty
 
-        member this.GetMetrics(node: MutableNode<'a, 'b>) = 
-            getMetrics gameToMetrics node
+//         member this.GetProgress() = []
+//         member ths.BrainServer = None
 
-        member this.PrintTree maxDepth rootNode = 
-            printTreeWithDepthAndWidth 3 maxDepth gameToMetrics rootNode
+//         member this.GetMetrics(node: MutableNode<'a, 'b>) = 
+//             getMetrics gameToMetrics node
 
-        member this.Search totalCount maxLookAhead root = 
-            let getMovesRandom game = 
-                let moves = GameMover.validMoves game
+//         member this.PrintTree maxDepth rootNode = 
+//             printTreeWithDepthAndWidth 3 maxDepth gameToMetrics rootNode
+
+//         member this.Search maxLookAhead root = 
+//             let getMovesRandom game = 
+//                 let moves = GameMover.validMoves game
                 
-                moves |> List.map (fun x ->
+//                 moves |> List.map (fun x ->
                     
-                    let g, isTerminal = 
-                        match GameMover.playMove x game with 
-                        | Game.Continue (g,_) -> g, None
-                        | Game.Lost g -> g, Some false
-                        | Game.Won g -> g, Some true
+//                     let g, isTerminal = 
+//                         match GameMover.playMove x game with 
+//                         | Game.Continue (g,_) -> g, None
+//                         | Game.Lost g -> g, Some false
+//                         | Game.Won g -> g, Some true
                     
-                    g, isTerminal, x, Math.Max(reward game * 2., 1.0)) 
+//                     g, isTerminal, x, Math.Max(reward game * 2., 1.0)) 
                         
-            let rolloutRandom (game, gameHashCode, depth) =
-                async {
-                    do! Async.SwitchToThreadPool()
-                    let pastGames = pastGames.[gameHashCode]
-                    return rolloutRandom pastGames (Set.count pastGames |> float) depth game
-                }
+//             let rolloutRandom (game, gameHashCode, depth) =
+//                 async {
+//                     do! Async.SwitchToThreadPool()
+//                     let pastGames = pastGames.[gameHashCode]
+//                     return rolloutRandom pastGames (Set.count pastGames |> float) depth game
+//                 }
                 
-            let expandRandom node =
-                expandNode getMovesRandom pastGames node //|> List.distinctBy (fun x -> reward x.Game)
+//             let expandRandom node =
+//                 expandNode getMovesRandom pastGames node //|> List.distinctBy (fun x -> reward x.Game)
             
-            let rec reSearch count = 
-                let maxDepth = 100.
-                logger count totalCount root -1. maxDepth
-                if count > 0 then 
-                    iteration (fun root -> logger count totalCount root -1. maxDepth) maxDepth 0. expandRandom rolloutRandom gameToMetrics root |> ignore
-                    reSearch (count - 1)
-            reSearch totalCount
-            false
+//             let rec reSearch count = 
+//                 let maxDepth = 100.
+//                 logger (fun () -> TimeSpan.FromHours 1.) root -1. maxDepth
+//                 if count > 0 then 
+//                     let moves = iteration log (fun root -> logger (fun () -> TimeSpan.FromHours 1.) root -1. maxDepth) (fun () -> 1.) maxDepth 0. expandRandom rolloutRandom gameToMetrics root |> ignore
+//                     reSearch (count - 1)
+//                 else failwithf "TOOD: make this return the list of moves"
+//             reSearch totalCount
 
 type SearcherWithNeuralNetwork(brainsMover: IBrainsMover, log, maxTime) =
     let mutable winningNode = None
     let mutable progress: float list = []
     let pastGames = Dictionary<_, _>()
-    let gameToMetrics = new Dictionary<_, _>()
+    let gameToMetrics = Dictionary<_, _>()
     let logger = logger log gameToMetrics
     let mutable maxReward = -10.
     let watch = Stopwatch()
+    let maxLookAhead = 250.
+
+    let toPolicyStructure (game:Game) = 
+        let transform left right =        
+            let game = transformGame game left right
+            game, (left, right)
+
+        applyTransform transform
+        |> List.sortBy (fun (x,_) -> x |> Game.getAllTabs |> List.map Tableau.getVisible |> List.concat)
+        |> List.take 1
+        |> List.map (fun (game, (l, r)) -> l,r,game)
+        |> List.head
 
     interface ISearcher with 
+        member this.Copy() = 
+            SearcherWithNeuralNetwork(brainsMover, log, maxTime) :> ISearcher
 
         member this.Init root = 
-            pastGames.Clear()
             pastGames.[root.GameHashCode] <- Set.empty
-            winningNode <- None
-            progress <- []
-            gameToMetrics.Clear()
-            maxReward <- -10.
-            watch.Restart()
 
         member this.MaxTime = maxTime
 
         member this.ResetMaxReward() = 
-            maxReward <- 0.
+            maxReward <- -10.
 
         member this.GetProgress() = []
         member ths.BrainServer = None
@@ -592,7 +580,9 @@ type SearcherWithNeuralNetwork(brainsMover: IBrainsMover, log, maxTime) =
         member this.PrintTree maxDepth rootNode = 
             printTreeWithDepth maxDepth gameToMetrics rootNode
 
-        member this.Search totalCount maxLookAhead root = 
+        member this.Search root = 
+            watch.Restart()
+            maxReward <- -10.
 
             let rollout (game: Game, gameHashCode: int, depthSearch) = 
                 // let depth = pastGames.[gameHashCode].Count |> float
@@ -602,7 +592,6 @@ type SearcherWithNeuralNetwork(brainsMover: IBrainsMover, log, maxTime) =
                     | true -> return winningNodeReward
                     | false -> return! brainsMover.GetValue game
                 }
-                    
 
             let rolloutRandom (game, gameHashCode, depth) =
                 let pastGames = pastGames.[gameHashCode]
@@ -611,9 +600,19 @@ type SearcherWithNeuralNetwork(brainsMover: IBrainsMover, log, maxTime) =
             let expand (node: MutableNode<Game, MoveType>) =
                 let getMoves game = 
                     let moves = GameMover.validMoves game
+
+                    let mapping, gPolicy = MoveEncoding.sortGame game
+
                     let bestMoves = 
-                        brainsMover.GetBestMove game
+                        brainsMover.GetBestMove gPolicy
                         |> Async.RunSynchronously
+                        |> List.mapi (fun i x -> i,x)
+                        |> List.choose (fun (index,score) -> 
+                            MoveEncoding.oneHotToMove game index
+                            |> Option.map (MoveEncoding.reverseMove mapping)
+                            |> Option.map (fun move -> move, score))
+                        // |> fun xs -> (Stock, 0.4) :: xs
+                        |> List.sortByDescending snd
                         |> List.filter (fun (move,_) -> moves |> List.contains move)
 
                     if moves.Length > bestMoves.Length then
@@ -643,30 +642,29 @@ type SearcherWithNeuralNetwork(brainsMover: IBrainsMover, log, maxTime) =
                 // |> List.distinctBy (fun x -> reward x.Game, x.TerminalValue)
 
             let startValue = Math.Min(maxLookAhead, 10.)
-            let increment = (maxLookAhead - startValue) / float totalCount
+            let increment = 40. // (maxLookAhead - startValue) / float totalCount
 
-            if maxReward = 0. then 
-                maxReward <- findBestScore (getMetrics gameToMetrics) root
-
-            let rec reSearch maxDepth count = 
-                logger count totalCount root maxReward maxDepth                
-                if count > 0 && watch.Elapsed < maxTime then
-    //                printTreeWithDepth 1 gameToMetrics root
-                    let reward = iteration (fun root -> logger count totalCount root maxReward maxDepth) maxDepth 0. expand rollout gameToMetrics root
+            let rec reSearch maxDepth = 
+                let timeRemaining () = maxTime - watch.Elapsed
+                logger timeRemaining root maxReward maxDepth                
+                if watch.Elapsed < maxTime then
+                    
+                    let moves, reward = iteration log (fun root -> logger timeRemaining root maxReward maxDepth) (fun () -> maxReward) maxDepth 0. expand rollout gameToMetrics root
 
                     if reward > maxReward then 
                         maxReward <- reward
-                    
-                    match maxReward = winningNodeReward with
-                    | false ->
-                        let maxDepth = 
-                            if maxDepth = maxLookAhead then  startValue
-                            else Math.Min(maxDepth + increment, maxLookAhead)
-                        reSearch maxDepth (count - 1)
-                        
-                    | true ->
-                        printfn "Found WINING node!"
-                        true
-                else false
 
-            reSearch startValue totalCount
+                    match moves with 
+                    | [] -> 
+                        let maxDepth = 
+                            if maxDepth = maxLookAhead then startValue
+                            else Math.Min(maxDepth + increment, maxLookAhead)
+                        reSearch maxDepth
+                    | moves -> 
+                        printfn "\nFound WINING node!"
+                        moves
+                else
+                    printfn "\nFailed to find winning path within time limit (%A)" maxTime
+                    []
+
+            reSearch startValue

@@ -42,25 +42,7 @@
         <e p="Reformat.fs" t="Include" />
       </e>
       <e p="ML-NET-Tensorflow" t="IncludeRecursive">
-        <e p="assets" t="Include">
-          <e p="saved_model.pb" t="Include" />
-          <e p="variables" t="Include">
-            <e p="variables.data-00000-of-00002" t="Include" />
-            <e p="variables.data-00001-of-00002" t="Include" />
-            <e p="variables.index" t="Include" />
-            <e p="variables.index.gz" t="Include" />
-          </e>
-        </e>
-        <e p="bin" t="ExcludeRecursive" />
-        <e p="Class1.cs" t="Include" />
         <e p="ML-NET-Tensorflow.csproj" t="IncludeRecursive" />
-        <e p="obj" t="ExcludeRecursive">
-          <e p="Debug" t="Include">
-            <e p="netcoreapp3.0" t="Include">
-              <e p="ML-NET-Tensorflow.AssemblyInfo.cs" t="Include" />
-            </e>
-          </e>
-        </e>
       </e>
       <e p="packages" t="ExcludeRecursive" />
       <e p="SpiderConsole.Tests" t="IncludeRecursive">

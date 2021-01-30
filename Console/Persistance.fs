@@ -15,15 +15,16 @@ type Msg =
     | Finish of AsyncReplyChannel<unit>
 
 type MgsP = 
-    | Input of (int * Reformat.LegacyFile [])
+    // | Input of (int * Reformat.LegacyFile [])
     | FinishP of AsyncReplyChannel<unit>
 
 type Saver(policyFile:int -> string, valueFile:int->string, qlearnFile:string option) = 
 
     let writeFilePolicyFileBuilder (writer:StreamWriter) gameNumber isWin history = 
+        let isWin = if isWin then 1 else 0
         history 
         |> List.iter (fun (moveOrder:int, game:string, move:int) -> 
-            sprintf "%d,%s,%d,%d,%d" moveOrder game move gameNumber history.Length |> writer.WriteLine ) 
+            sprintf "%d,%d,%s,%d,%d,%d" isWin moveOrder game move gameNumber history.Length |> writer.WriteLine ) 
 
     // let writeEpisodeQLearning (writer:StreamWriter) _ history = 
     //     history 
@@ -126,7 +127,7 @@ type Saver(policyFile:int -> string, valueFile:int->string, qlearnFile:string op
         // mbP.PostAndReply FinishP
         mb.PostAndReply Finish
 
-    member this.SaveLegacyFormat gn (games: Reformat.LegacyFile [] ) = ()
+    // member this.SaveLegacyFormat gn (games: Reformat.LegacyFile [] ) = ()
     //     mbP.Post (Input (gn, games))
 
     member this.Format() = 

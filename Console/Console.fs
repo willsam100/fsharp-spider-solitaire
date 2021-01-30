@@ -14,7 +14,8 @@ open System.Diagnostics
 open SpiderSolitare.Operations
 open SpiderSolitare.Operations.App
 open System.Threading
-
+open SpiderSolitare.Representation
+open SpiderSolitare.Representation
 type AppMove = 
     | GetMoves of AsyncReplyChannel<List<int * MoveType>>
     | PlayMove of int * AsyncReplyChannel<GameResult>
@@ -32,7 +33,6 @@ type MachineLearningApproach =
     | MctsWithRestApi
 
 type RunConfig = {
-    MctsIterationCount: int 
     LoopCount: int
     MoveCount: int
     RandomMoveThreshold: float
@@ -159,7 +159,7 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
         let searcher = 
             match config.MachineLearningApproach with 
             | MctsWithRestApi -> SearcherWithNeuralNetwork(brainsMover, log, config.MaxSearchTime) :> ISearcher
-            | RadnomMcts -> SearcherRandomer(log)  :> ISearcher
+            | RadnomMcts -> failwith "Not implemented" //SearcherRandomly(log)  :> ISearcher
 
         gameNumbers 
         |> List.map (fun gameNumber -> 
@@ -172,13 +172,15 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 
             let s = Stopwatch()
             s.Start()
-            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher config.MctsIterationCount config.MoveCount game gameNumber
+            let gameResult = MctsSpiderGameLoop.playGame log config.RandomMoveThreshold (searcher.Copy()) config.MoveCount game gameNumber
             searcher.BrainServer |> Option.iter (fun brainsMover -> brainsMover.Flush())
 
-            printfn "%A" gameResult.Game
+            if not gameResult.IsWin then 
+                printfn "%A" gameResult.Game
+
             printfn "GameNumber: %d, Result: %s, MovesPlayed: %.0f Time: %A" gameResult.GameNumber (if gameResult.IsWin  then "WIN" else "LOST") gameResult.MovesMade s.Elapsed
             if List.isEmpty gameResult.Progress then 
-                printfn "No progres"
+                printfn "No progress"
             else                 
                 gameResult.Progress |> List.map (fun x -> sprintf "%.2f" x) |> String.concat "," |> printfn "%s"
             printfn ""                
@@ -232,9 +234,13 @@ let rec run log (saver: ISaver) parallelCount config gameNumbers =
 let main argv =
     let prefix = "/Users/willsam100/Desktop/spider-data/"
     let prefixName = "spider-policy-raw"
+    let prefixPolicyBalancedName = "data"
+    let policyBalanced: int -> string = sprintf "%s/%s-%d.csv" prefix prefixPolicyBalancedName
     let policyRaw: int -> string = sprintf "%s/%s-%d.csv" prefix prefixName
     let prefixValueName = "spider-value-raw"
+    let prefixValueBalancedName = "data-value"
     let valueRaw: int -> string = sprintf "%s/%s-%d.csv" prefix prefixValueName
+    let valueBalanced: int -> string = sprintf "%s/%s-%d.csv" prefix prefixValueBalancedName
     // let valueRaw = "/Users/willsam100/Desktop/spider-value-raw.csv"
     let qLearning = "/Users/willsam100/Desktop/spider-policy-net-train.csv"
     let qLearningBk = "/Users/willsam100/Desktop/message.csv"
@@ -267,7 +273,7 @@ let main argv =
     //     |> Array.iter (fun (gn, xs) -> s.SaveLegacyFormat gn xs )
 
     //     s.Finish()
-    | [| "play"; movesAhead; gameNumbers|] -> 
+    | [| "play"; gameNumbers|] -> 
         let gameNumbers = 
             if gameNumbers.Contains "," then 
                 gameNumbers.Split "," |> Array.toList |> List.map System.Int32.Parse
@@ -275,13 +281,12 @@ let main argv =
 
         let parallelCount = 1
         let config = {
-            MctsIterationCount = int movesAhead
             MoveCount = 300
             LoopCount = 0
-            RandomMoveThreshold = 1.0
+            RandomMoveThreshold = 1.
             RandomDelta = 0.
             MachineLearningApproach = MachineLearningApproach.MctsWithRestApi
-            MaxSearchTime = TimeSpan.FromHours 1.
+            MaxSearchTime = TimeSpan.FromMinutes 15.
         }
 
         let saver = 
@@ -335,16 +340,34 @@ let main argv =
         printfn "%A" game.Stock
 
         let config = {
-            MctsIterationCount = 20
             MoveCount = 1000
             LoopCount = 0
-            RandomMoveThreshold = 0.9
+            RandomMoveThreshold = 0.1
             RandomDelta = 0.
             MachineLearningApproach = MachineLearningApproach.MctsWithRestApi
             MaxSearchTime = TimeSpan.FromMinutes 5.
         }
 
-        let searcher = SearcherRandomer(true)  :> ISearcher
+        let ports = [5100 .. 5106]
+
+        let brains = 
+            ports
+            |> List.map (fun port -> 
+                async {
+                    do! Async.SwitchToThreadPool()
+                
+                    let brain = BrainMoverServer(port)
+                    brain.StartServer()
+                    return brain
+                
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> Array.toList
+
+        let brainsMover = BrainsMoverClient(ports) :> IBrainsMover
+
+        let searcher = SearcherWithNeuralNetwork(brainsMover, log, config.MaxSearchTime) :> ISearcher //SearcherRandomly(true)  :> ISearcher
 
         let appendMove x acc = 
             match acc with 
@@ -409,7 +432,7 @@ let main argv =
             let next = 1, string move, 1, ""
             next :: history
             
-        MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher config.MctsIterationCount config.MoveCount game -1
+        MctsSpiderGameLoop.playGame log config.RandomMoveThreshold searcher config.MoveCount game -1
         |> fun x -> x.History
         |> printMoves rows
 
@@ -417,24 +440,21 @@ let main argv =
 
 
     | [| "generate" |] -> 
-
         // Threading.ThreadPool.SetMinThreads(32, 32) |> ignore
 
         let gameNumbers = 
-            List.replicate 10 [50 .. 120] 
+            List.replicate 5 [50 .. 1000] 
             |> List.concat //List.replicate 20 [ 50;51;52;55;57;59;60;61;62;63;64;65;66;67;68;69;70;76;77;79;80;81;82;83;84;85;86;87;88;89;90;91;92;96;97;98;99;100;101;103;104;105;107;108;110;111;113;114;115;116;118;119;120;121;122;123;124;126;127;128;129;130;131;132;134;135;136;137;138;139;141;142;143;144;146;148;149;150;152;153;154;156;157;158;159;160;161;162;163;164;165;166;167;169;170;172;174;175;176;177;178;180;181;182;183;184;185;186;188;189;190;191;192;193;194;195;196;197;200 ] |> List.concat
-            |> List.filter (fun x -> x <> 100 && x <> 102 && x <> 103 && x <> 116
-            )
-        let parallelCount = 8
+
+        let parallelCount = 6
         let log = if parallelCount > 1 then false else true
         let config = {
-            MctsIterationCount = 100
             LoopCount = 0
-            MoveCount = 300
-            RandomMoveThreshold = 0.98
+            MoveCount = 160
+            RandomMoveThreshold = 0.9
             RandomDelta = 0.001
             MachineLearningApproach = MctsWithRestApi
-            MaxSearchTime = TimeSpan.FromHours 1.
+            MaxSearchTime = TimeSpan.FromMinutes 15.
         }
 
         let saver = 
@@ -458,36 +478,202 @@ let main argv =
         let p = train network load epochs
         p.WaitForExit()
 
-    | [| "image"; |] -> 
-        use image = new MagickImage(MagickColor.FromRgb(byte 255, byte  45, byte  0), 10, 6)
-        
-        image.GetPixels() |> Seq.iter (fun x -> x.Set([| byte 42; byte 45; byte 0   |]) )
+    | [| "data-predict"; |] -> 
 
-        image.Write("/Users/willsam100/Desktop/image.png")
+        let brains = 
+            Reformat.ports
+            |> List.map (fun port -> 
+                async {
+                    do! Async.SwitchToThreadPool()
+                
+                    let brain = BrainMoverServer(port)
+                    brain.StartServer()
+                    return brain
+                
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> Array.toList
+
+        let ports = Reformat.ports
+        let brainsMover = BrainsMoverClient(ports)
+
+
+        let gameNumber = 1
+        let rows = gameNumber |> policyBalanced |> File.ReadAllLines
+
+
+        let getValidMoves (row: string) = 
+            let values = row.Split "," |> Array.toList |> List.map int
+            let game = values |> List.skip 3 
+            MoveEncoding.oneHotToMoves game
+
+        // let parseRow (row:string) = 
+        //     let values = row.Split "," |> Array.toList |> List.map int
+        //     let game = values |> List.skip 3 
+        //     let input = game |> List.map string |> String.concat "," //|> List.take 286 |> decodeKeyedGame 26 cardEncoder
+
+        //     // let move = values.[0] |> MoveEncoding.intToMove
+        //     let f,t,c = values.[0], values.[1],values.[2] 
+        //     let move = 
+        //         let f = Coord.parseColumn f
+        //         { From = f; To = Coord.parseColumn t; Card = cardEncoder.DecodeCard c |> Option.get} |> Move
+            
+        //     let validMoves = MoveEncoding.oneHotToMoves game
+
+        //     let pred = 
+        //         brainsMover.GetBestMove input 
+        //         |> Async.RunSynchronously
+        //         // |> List.mapi (fun i x -> MoveEncoding.intToMove i,x)
+        //         |> MoveEncoding.probsToAllMovesNoSwap
+        //         |> List.sortByDescending snd
+        //         |> List.filter (fun x -> validMoves |> List.contains (fst x))
+        //     game, move, pred, validMoves
+
+        let parseSingleColumn (row:string) = 
+            let values = row.Split "," |> Array.toList 
+            let game = 
+                values 
+                |> List.skip (MoveEncoding.oneHotViaCountCount * 2)
+                |> List.map int
+                |> decodeOneHotGame 13 1
+
+            let validMoves = game |> GameMover.validMoves
+            let moves = 
+                values 
+                // |> List.skip MoveEncoding.oneHotViaCountCount
+                |> List.take MoveEncoding.oneHotViaCountCount 
+                |> List.map int
+                |> OneHot.toInt
+                |> (MoveEncoding.oneHotToMove game >> Option.get)
+
+            let mapping, gPolicy = MoveEncoding.sortGame game
+
+            let pred = 
+                gPolicy
+                |> (brainsMover :> IBrainsMover).GetBestMove 
+                |> Async.RunSynchronously
+                |> List.mapi (fun i x -> i,x)
+                |> List.choose (fun (index,score) -> 
+                    MoveEncoding.oneHotToMove game index
+                    |> Option.map (MoveEncoding.reverseMove mapping)
+                    |> Option.map (fun move -> move, score))
+                |> List.sortByDescending snd
+                |> List.filter (fun (x,_) -> validMoves |> List.contains x)
+                |> List.truncate 5
+
+            game, moves, pred
+
+        // rows 
+        // |> Array.map (getValidMoves >> List.length >> float)
+        // |> Array.average
+        // |> printfn "Avg move count: %f"
+       
+
+
+        let scoreMoves exp pred = 
+            exp 
+            |> List.exists (fun e -> 
+                pred 
+                |> List.filter (fun (_, score) -> score >= 0.5)
+                |> List.map fst
+                |> List.contains e)
         
-        let startInfo = ProcessStartInfo("open")
-        startInfo.RedirectStandardInput <- true
-        startInfo.RedirectStandardOutput <- true
-        startInfo.UseShellExecute <- false
-        startInfo.Arguments <- "/Users/willsam100/Desktop/image.png"
-        startInfo.WindowStyle <- ProcessWindowStyle.Hidden
-        Process.Start(startInfo) |> ignore
+        rows 
+        |> Seq.truncate 2000
+        |> Seq.map (fun row -> 
+            let game, move, preds = parseSingleColumn row
+
+            move <> fst preds.[0], sprintf "%A\n%A\nPred:%A" game move preds
+            )
+        |> Seq.filter fst
+        |> Seq.iter (snd >> printfn "%s")
+
+        printfn "Calculating accuracy..."
+
+        let count = 2000
+        let correct = 
+            rows 
+            |> Array.truncate count
+            |> Array.filter (fun row -> 
+                let game, move, preds = parseSingleColumn row
+                move = fst preds.[0] )
+        printfn "%f" (float correct.Length / float count)
+        printfn "%d" rows.Length
+
+        // Thread.Sleep (TimeSpan.FromSeconds 10.)
+
+        // rows 
+        // |> Array.iter (fun row -> 
+        //     let game, move, pred, validMoves = parseRow row
+        //     // if validMoves |> List.contains (fst pred.[0]) |> not then 
+        //     if move <> fst pred.[0] then 
+        //         printfn "%A" game
+        //         printfn "Exp:%A    -- Pred: %A" move pred.[0]
+        //         pred |> List.iteri (fun i pred -> printfn "Pred %d %A" (i+1) pred )
+        //         printfn "Valid:"
+        //         validMoves |> List.iter (printfn "%A")
+        // )
+
+        brains |> List.iter (fun b -> b.Stop())
+        
 
     | [| "balance"; |] ->  
+
+        // let brains = 
+        //     Reformat.ports
+        //     |> List.map (fun port -> 
+        //         async {
+        //             do! Async.SwitchToThreadPool()
+                
+        //             let brain = BrainMoverServer(port)
+        //             brain.StartServer()
+        //             return brain
+                
+        //         })
+        //     |> Async.Parallel
+        //     |> Async.RunSynchronously
+        //     |> Array.toList
 
         Directory.GetFiles prefix 
         |> Array.filter (fun x -> x.Contains prefixName)
         |> Array.map (fun x -> 
             x.Replace(prefix, "").Replace(prefixName, "").Replace("-", "").Replace(".csv", ""))
         |> Array.map int
-        |> Array.filter (fun x -> x <= 100)
+       |> Array.filter (fun x -> x < 102)
         |> Array.sort
-        |> Array.iter (fun gameNumber -> 
-            printfn "Balancing %d" gameNumber
-            Reformat.augment gameNumber prefix (gameNumber |> policyRaw)
-        )
+        |> Array.map (fun gameNumber -> Reformat.augment gameNumber prefix (gameNumber |> policyRaw) )
+        |> Async.Parallel
+        |> Async.Ignore
+        |> Async.RunSynchronously
 
+        // brains |> List.iter (fun b -> b.Stop())
+        
     | [| "balance-cat"; |] ->      
+
+        let destFileName = Path.Join(prefix, "data-1.csv")
+        File.Delete destFileName
+
+        let sourceFiles = 
+            Directory.GetFiles prefix 
+            |> Array.filter (fun x -> x.Contains "data-" && x.EndsWith ".csv" && (x.Contains "value" |> not))
+
+        let catFile sourceFiles =     
+            use destStream = File.OpenWrite(destFileName)
+            for srcFileName in sourceFiles do
+                use srcStream = File.OpenRead(srcFileName)
+                srcStream.CopyTo(destStream)
+        catFile sourceFiles
+
+        let lines = File.ReadAllLines destFileName
+        Array.shuffle lines
+        File.WriteAllLines(destFileName, lines)
+
+
+        // for f in sourceFiles do
+        //     File.Delete f
+
+    | [| "balance-value-cat"; |] ->      
 
         let destFileName = Path.Join(prefix, "data-value-1.csv") 
 
